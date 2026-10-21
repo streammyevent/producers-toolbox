@@ -1,6 +1,6 @@
 {
   "name": "@producers-toolbox/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Producers Toolbox: the desktop app that hosts the Stream My Event producer tools",
   "author": "Stream My Event",
