@@ -1,0 +1,9 @@
+{
+  "id": "content-card-studio",
+  "name": "Content Card Studio",
+  "version": "0.7.0",
+  "icon": "web/assets/app-icon.png",
+  "entry": "web/index.html",
+  "window": { "width": 1440, "height": 900 },
+  "permissions": ["storage", "file-export"]
+}

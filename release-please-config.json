@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "draft": true,
+  "force-tag-creation": true,
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "producers-toolbox",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [{ "type": "json", "path": "apps/desktop/package.json", "jsonpath": "$.version" }]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # The npm ecosystem covers the pnpm workspace through the root lockfile
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # pnpm holds back versions younger than a day (minimumReleaseAge)
+    cooldown:
+      default-days: 3
+    # chore(deps): ... does not start a release; retitle to fix(deps): when an update must ship (Electron security fixes)
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      dev-minor-patch:
+        dependency-type: development
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]

@@ -1,0 +1,9 @@
+{
+  "id": "quote-pricer",
+  "name": "Quote Pricer",
+  "version": "1.0.0",
+  "icon": null,
+  "entry": "web/index.html",
+  "window": { "width": 1280, "height": 860 },
+  "permissions": ["storage", "net-fetch"]
+}

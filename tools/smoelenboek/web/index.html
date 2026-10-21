@@ -1,0 +1,1416 @@
+﻿<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Content-Security-Policy: no inline scripts or event handlers (all JS lives in js/*.js). Keep it in sync with
+         the external services the app calls (Google Custom Search, Wikipedia/Wikimedia). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src * 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://*.wikipedia.org https://*.wikimedia.org; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+    />
+    <title>Speaker Photo Directory - Mic & Profile Manager</title>
+    <meta
+      name="description"
+      content="Visual directory for speaker headshots, full names, job titles, and wireless microphone assignments with standard A4 printing and multi-project support."
+    />
+    <meta name="theme-color" content="#FFFFFF" />
+
+    <!-- Applies the saved (or system) light/dark theme before the first paint. Keep it a synchronous,
+         external script: a Content-Security-Policy that forbids inline scripts is planned. -->
+    <script src="js/theme.js?v=1"></script>
+
+    <!-- Typography: Geist for the app UI. Outfit is kept only for the printed A4 sheet, so print output is unchanged. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Outfit:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="icon" type="image/png" href="assets/icon.png" />
+    <link rel="stylesheet" href="css/style.css?v=639252399619522927" />
+  </head>
+  <body>
+    <!-- View-Only Mode Banner -->
+    <div id="view-only-banner" class="view-only-banner">
+      <div class="view-only-banner-text">
+        <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        <span><strong>View-only mode:</strong> you are viewing a shared live speaker directory.</span>
+      </div>
+      <a id="link-switch-edit" href="?" class="btn btn-secondary btn-sm">Switch to Full Editor</a>
+    </div>
+    <!-- Print Header Banner (Only visible on printed A4 paper / PDF) -->
+    <div class="print-header-banner" id="main-print-header-banner">
+      <h1
+        id="print-project-title"
+        style="font-size: 1.5rem; font-weight: 700; margin: 0; padding-bottom: 8px; color: #111"
+      >
+        Speaker Photo Directory
+      </h1>
+    </div>
+    <!-- Top bar -->
+    <header class="app-header">
+      <div class="app-topbar">
+        <div class="brand-section">
+          <div class="brand-icon brand-mark" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" x2="12" y1="19" y2="22" />
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">Speaker Photo Directory</span>
+            <p class="brand-subtitle">Manage speaker headshots, titles &amp; wireless mic assignments</p>
+          </div>
+          <span class="header-sep" aria-hidden="true"></span>
+          <div class="title-container">
+            <div class="project-title-wrapper">
+              <h1 id="project-title-display" class="project-title-text" title="Click to rename project title">
+                Speaker Photo Directory
+              </h1>
+              <input
+                type="text"
+                id="project-title-input"
+                class="project-title-input"
+                value="Speaker Photo Directory"
+                aria-label="Project title"
+              />
+              <button
+                id="btn-edit-title"
+                class="btn-edit-title btn-edit-only"
+                title="Rename Project Title"
+                aria-label="Rename Project Title"
+              >
+                <svg class="ico ico-xs" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                </svg>
+              </button>
+            </div>
+            <!-- Save state (flashSaveIndicator() pulses it after every save) -->
+            <div
+              class="save-status-badge save-state btn-edit-only"
+              id="save-status-indicator"
+              title="All changes saved automatically"
+            >
+              <span class="save-status-dot save-dot"></span>
+              <span>Saved</span>
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <!-- Projects Manager Menu Button -->
+          <button
+            id="btn-projects-menu"
+            class="btn btn-secondary btn-edit-only btn-collapsible"
+            title="Open Saved Projects or Start a New Project"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span class="btn-label">Projects</span>
+          </button>
+          <!-- Print Sheet (A4) -->
+          <button
+            id="btn-open-print-modal"
+            class="btn btn-secondary btn-collapsible"
+            title="Standard A4 Print Sheet & Layout Sizing Preview"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <polyline points="6 9 6 2 18 2 18 9"></polyline>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+              <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            <span class="btn-label">Print Sheet (A4)</span>
+          </button>
+          <!-- Remove All Speakers Button (with confirmation) -->
+          <button
+            id="btn-remove-all-speakers"
+            class="btn btn-secondary btn-danger-hover btn-edit-only btn-collapsible"
+            title="Delete all speakers from directory"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span class="btn-label">Remove All</span>
+          </button>
+          <!-- Add Speaker Button -->
+          <button id="btn-add-speaker" class="btn btn-primary btn-edit-only">
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Speaker
+          </button>
+          <span class="header-sep" aria-hidden="true"></span>
+          <!-- Basic / Advanced segmented switch -->
+          <div class="mode-switch-container segmented" title="Switch between Basic and Advanced UI modes">
+            <span class="mode-label seg-btn active" id="mode-label-basic">Basic</span>
+            <label class="switch-slider-wrap">
+              <input type="checkbox" id="toggle-mode-switch" aria-label="Advanced mode" />
+              <span class="slider-round"></span>
+            </label>
+            <span class="mode-label seg-btn" id="mode-label-adv">Advanced</span>
+          </div>
+          <!-- Light / dark theme switch (wired up by js/theme.js) -->
+          <button
+            id="btn-theme-toggle"
+            class="icon-btn icon-btn-outline"
+            type="button"
+            title="Switch to dark mode"
+            aria-label="Switch to dark mode"
+          >
+            <svg class="ico theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"></path>
+            </svg>
+            <svg class="ico theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+              ></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <!-- Advanced tools: every button in this bar is Advanced-only -->
+      <div class="app-subbar">
+        <span class="subbar-label">Advanced tools</span>
+        <div class="subbar-actions">
+          <button
+            id="btn-save-now"
+            class="btn btn-secondary btn-sm btn-success btn-edit-only adv-only"
+            title="Save & Download Directory Backup"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            Save
+          </button>
+          <button
+            id="btn-share-link"
+            class="btn btn-secondary btn-sm adv-only"
+            title="Share View-Only Link (View without editing)"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            Share Link
+          </button>
+          <!-- Reorder Speakers Toggle Button -->
+          <button
+            id="btn-toggle-reorder"
+            class="btn btn-secondary btn-sm btn-edit-only adv-only"
+            title="Toggle Drag & Click Speaker Reordering Mode"
+          >
+            <span id="reorder-btn-text">&#8644; Reorder</span>
+          </button>
+          <button
+            id="btn-manage-mics"
+            class="btn btn-secondary btn-sm btn-edit-only adv-only"
+            title="Edit Global Microphone Inventory List"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" x2="12" y1="19" y2="22" />
+            </svg>
+            Edit Mic List
+          </button>
+          <!-- Backup folder (synced by Google Drive for desktop, OneDrive, Dropbox) -->
+          <button
+            id="btn-sync-menu"
+            class="btn btn-secondary btn-sm btn-edit-only adv-only"
+            title="Back up to a synced folder (Google Drive, OneDrive, Dropbox)"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"></path>
+            </svg>
+            <span id="sync-btn-label">Backup folder</span>
+            <span id="sync-status-dot" class="sync-dot sync-dot-off"></span>
+          </button>
+          <button
+            id="btn-import-export"
+            class="btn btn-secondary btn-sm btn-edit-only adv-only"
+            title="Import / Export Data"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Import / Export
+          </button>
+          <button
+            id="btn-reset-data"
+            class="btn btn-secondary btn-sm btn-icon-only btn-edit-only adv-only"
+            title="Reset Demo Data"
+            aria-label="Reset Demo Data"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    <div class="app-container">
+      <!-- Controls / Search & Filters -->
+      <section class="controls-bar">
+        <div class="search-row">
+          <div class="search-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              type="text"
+              id="search-input"
+              class="search-input"
+              placeholder="Search by speaker name, title, company, or mic channel (e.g. 'Lav 1', 'Elena')..."
+            />
+            <button id="clear-search-btn" class="clear-search-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="stats-badge">
+            <span>Showing:</span>
+            <span id="speaker-count" class="stats-count">8 Speakers</span>
+          </div>
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Filter Mic:</span>
+          <button class="filter-pill active" data-filter="all">
+            All <span class="pill-count" id="count-all">8</span>
+          </button>
+          <button class="filter-pill" data-filter="lav">
+            Lavalier <span class="pill-count" id="count-lav">3</span>
+          </button>
+          <button class="filter-pill" data-filter="handheld">
+            Handheld <span class="pill-count" id="count-handheld">2</span>
+          </button>
+          <button class="filter-pill" data-filter="headset">
+            Headset <span class="pill-count" id="count-headset">2</span>
+          </button>
+          <button class="filter-pill" data-filter="podium">
+            Podium <span class="pill-count" id="count-podium">1</span>
+          </button>
+          <button class="filter-pill" data-filter="none">
+            Unassigned <span class="pill-count" id="count-none">0</span>
+          </button>
+        </div>
+      </section>
+      <!-- Reorder Mode Active Notification Banner -->
+      <div id="reorder-banner" class="reorder-banner">
+        <div class="reorder-banner-title">
+          <span style="font-size: 1.3rem">⇄</span>
+          <div>
+            <div><strong>Reordering Mode Active</strong></div>
+            <div class="reorder-banner-sub">
+              Drag boxes or click ▲ / ▼ to re-sequence speakers. Sequence numbers (#1, #2, #3...) show your live run
+              sheet order.
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          id="btn-done-reorder"
+          class="btn btn-primary"
+          style="padding: 8px 18px; font-size: 0.85rem; white-space: nowrap"
+        >
+          ✓ Done Reordering
+        </button>
+      </div>
+      <!-- Speaker Photo Directory Grid -->
+      <main id="speakers-container" class="speakers-grid">
+        <!-- Dynamically generated via JS -->
+      </main>
+    </div>
+    <!-- Projects Manager Modal -->
+    <div id="projects-modal" class="modal-backdrop">
+      <div class="modal-window modal-window-lg">
+        <div class="modal-header">
+          <h2 class="modal-title">📁 Manage Projects & Events</h2>
+          <button class="modal-close-btn" data-close="projects-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 20px">
+            Create new speaker directories for different events, switch between saved projects, or duplicate an existing
+            run sheet.
+          </p>
+          <!-- Create New Project Box -->
+          <div
+            class="add-mic-box"
+            style="margin-bottom: 24px; background: var(--accent-soft); border-color: var(--accent-ring)"
+          >
+            <h4 style="font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary)">
+              + Start a New Project / Event
+            </h4>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap">
+              <input
+                type="text"
+                id="new-project-title-input"
+                class="form-input"
+                placeholder="e.g. AI Vision Summit 2026, Q3 Townhall, Annual Gala..."
+                style="flex: 2; min-width: 220px"
+              />
+              <button type="button" id="btn-create-new-project" class="btn btn-primary" style="white-space: nowrap">
+                + Create Project
+              </button>
+            </div>
+          </div>
+          <h4
+            style="
+              font-size: 0.9rem;
+              margin-bottom: 12px;
+              color: var(--text-muted);
+              text-transform: uppercase;
+              letter-spacing: 0.05em;
+            "
+          >
+            Saved Projects:
+          </h4>
+
+          <!-- Saved Projects List -->
+          <div id="projects-list-container" class="projects-list-container">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="projects-modal">Close</button>
+        </div>
+      </div>
+    </div>
+    <!-- Share View-Only Link Modal -->
+    <div id="share-modal" class="modal-backdrop">
+      <div class="modal-window">
+        <div class="modal-header">
+          <h2 class="modal-title">🔗 Share Speaker Directory (View-Only)</h2>
+          <button class="modal-close-btn" data-close="share-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 12px">
+            Anyone with this link can view the speaker photos, names, titles, and mic assignments with live search &
+            filters, without being able to edit or delete anything.
+          </p>
+          <label class="form-label">View-Only Share Link:</label>
+          <div class="share-link-box">
+            <input type="text" id="share-link-url" class="share-link-input" readonly />
+            <button id="btn-copy-share-link" class="btn btn-primary" style="white-space: nowrap">📋 Copy Link</button>
+          </div>
+          <p id="share-link-note" style="margin-top: 10px; font-size: 0.85rem; color: var(--warn)" hidden>
+            This page is opened as a local file, so there is no link that others can open. To share it, run
+            <code>scripts/windows/Share-On-Office-Network.bat</code> on this computer and open the address it shows.
+          </p>
+          <div
+            style="
+              margin-top: 16px;
+              padding: 12px 16px;
+              background: var(--info-bg);
+              border-radius: var(--radius-sm);
+              font-size: 0.825rem;
+              color: var(--text-secondary);
+            "
+          >
+            💡 <strong>Tip:</strong> Perfect for sending to Front of House (FOH) crew, stage assistants, VIP hosts, and
+            production teams on tablets or phones!
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="share-modal">Close</button>
+        </div>
+      </div>
+    </div>
+    <!-- Print Customizer & Live Resize Preview Modal (Standard A4) -->
+    <div id="print-modal" class="modal-backdrop">
+      <div class="modal-window modal-window-lg">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <h2 class="modal-title">🖨️ Print Sheet & Layout Sizing</h2>
+            <span class="a4-badge">A4 Standard (210 × 297mm)</span>
+          </div>
+          <button class="modal-close-btn" data-close="print-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- Orientation Selector -->
+          <div class="form-group" style="margin-bottom: 18px">
+            <label class="form-label" style="font-size: 0.95rem; margin-bottom: 8px">Page Orientation:</label>
+            <div class="print-orientation-selector" style="display: flex; gap: 12px">
+              <div
+                class="print-orientation-btn active"
+                data-orientation="portrait"
+                style="
+                  flex: 1;
+                  padding: 12px 16px;
+                  border-radius: var(--radius-md);
+                  background: var(--bg-input);
+                  border: 2px solid var(--border-subtle);
+                  cursor: pointer;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 10px;
+                  transition: var(--transition);
+                "
+              >
+                <span style="font-size: 1.3rem">📄</span>
+                <div>
+                  <div style="font-weight: 700; font-size: 0.9rem">Portrait</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted)">A4 Vertical (210 × 297 mm)</div>
+                </div>
+              </div>
+              <div
+                class="print-orientation-btn"
+                data-orientation="landscape"
+                style="
+                  flex: 1;
+                  padding: 12px 16px;
+                  border-radius: var(--radius-md);
+                  background: var(--bg-input);
+                  border: 2px solid var(--border-subtle);
+                  cursor: pointer;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 10px;
+                  transition: var(--transition);
+                "
+              >
+                <span style="font-size: 1.3rem">📑</span>
+                <div>
+                  <div style="font-weight: 700; font-size: 0.9rem">Landscape</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted)">A4 Horizontal (297 × 210 mm)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <label class="form-label" style="font-size: 0.95rem; margin-bottom: 12px"
+            >Select Card Density / Columns per row:</label
+          >
+
+          <div class="print-options-grid">
+            <div class="print-density-btn" data-cols="6" id="btn-density-6" style="display: none">
+              <span class="print-density-title">6 Columns</span>
+              <span class="print-density-sub">Landscape Wide (24+ per page)</span>
+            </div>
+            <div class="print-density-btn" data-cols="5">
+              <span class="print-density-title">Compact</span>
+              <span class="print-density-sub">5 Columns (20+ per page)</span>
+            </div>
+            <div class="print-density-btn active" data-cols="4">
+              <span class="print-density-title">Standard</span>
+              <span class="print-density-sub">4 Columns (12-16 per page)</span>
+            </div>
+            <div class="print-density-btn" data-cols="3">
+              <span class="print-density-title">Large</span>
+              <span class="print-density-sub">3 Columns (6-9 per page)</span>
+            </div>
+            <div class="print-density-btn" data-cols="2">
+              <span class="print-density-title">Extra Large</span>
+              <span class="print-density-sub">2 Columns (4 per page)</span>
+            </div>
+          </div>
+          <div
+            style="
+              background: var(--bg-input);
+              padding: 14px 18px;
+              border-radius: var(--radius-md);
+              border: 1px solid var(--border-subtle);
+              margin-bottom: 16px;
+            "
+          >
+            <h4 style="font-size: 0.85rem; margin-bottom: 10px; color: var(--text-muted); text-transform: uppercase">
+              Print Elements:
+            </h4>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer">
+                <input type="checkbox" id="print-toggle-title" checked />
+                <span>Include Project Title Banner</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer">
+                <input type="checkbox" id="print-toggle-mics" checked />
+                <span>Include Mic Badges</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer">
+                <input type="checkbox" id="print-toggle-notes" checked />
+                <span>Include Stage Notes</span>
+              </label>
+            </div>
+          </div>
+          <!-- Live Interactive Print Paper Sheet Preview (Standard A4 aspect) -->
+          <div class="print-preview-container">
+            <div class="print-preview-header">
+              <span class="print-preview-title" id="preview-paper-header-title">
+                📄 Live Standard A4 Portrait Paper Preview
+              </span>
+              <span id="preview-page-estimate" style="font-size: 0.8rem; color: var(--muted)">Layout: 4 Columns</span>
+            </div>
+            <div id="print-sheet-paper" class="print-sheet-paper orientation-portrait">
+              <div
+                class="print-sheet-paper-header"
+                id="preview-sheet-header-wrapper"
+                style="margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1.5px solid #333"
+              >
+                <div
+                  id="preview-sheet-title"
+                  class="print-sheet-paper-title"
+                  style="font-size: 1.25rem; font-weight: 700; color: #111"
+                >
+                  Speaker Photo Directory
+                </div>
+              </div>
+              <div id="print-preview-grid" class="print-sheet-preview-grid">
+                <!-- Dynamically populated live preview cards -->
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="print-modal">Cancel</button>
+          <button type="button" id="btn-execute-print" class="btn btn-primary" style="padding: 10px 24px">
+            🖨️ Print / Save as PDF (A4)
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- Speaker Add / Edit Modal -->
+    <div id="speaker-modal" class="modal-backdrop">
+      <div class="modal-window">
+        <div class="modal-header">
+          <h2 id="modal-title" class="modal-title">Add Speaker Profile</h2>
+          <button class="modal-close-btn" data-close="speaker-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <form id="speaker-form">
+          <div class="modal-body">
+            <input type="hidden" id="edit-speaker-id" />
+            <!-- Photo Section -->
+            <div class="form-group">
+              <label class="form-label">Speaker Photo / Headshot</label>
+              <div class="photo-field-wrapper">
+                <div class="photo-preview-box">
+                  <img id="form-photo-preview" alt="Preview" class="photo-preview-img" />
+                </div>
+                <div class="photo-field-actions">
+                  <button type="button" id="btn-open-photo-lookup" class="btn btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    🔍 Search Google / LinkedIn Photos
+                  </button>
+                  <input type="hidden" id="form-photo-url" />
+                  <small style="color: var(--text-muted); font-size: 0.775rem"
+                    >Google Image & LinkedIn lookup, paste (Ctrl+V), or file drop</small
+                  >
+                </div>
+              </div>
+            </div>
+            <!-- Full Name -->
+            <div class="form-group">
+              <label for="form-fullname" class="form-label">Full Name *</label>
+              <input type="text" id="form-fullname" class="form-input" placeholder="e.g. Dr. Jane Smith" required />
+            </div>
+            <!-- Title / Organization -->
+            <div class="form-group">
+              <label for="form-title" class="form-label">Title & Organization / Role *</label>
+              <input
+                type="text"
+                id="form-title"
+                class="form-input"
+                placeholder="e.g. Chief Technology Officer, NovaTech"
+                required
+              />
+            </div>
+            <!-- Mic Assignment (Dynamically Populated from Global Mic List) -->
+            <div class="form-row">
+              <div class="form-group">
+                <label for="form-mic-preset" class="form-label">Microphone Assignment *</label>
+                <select id="form-mic-preset" class="form-select">
+                  <!-- Injected dynamically from Global Mic List -->
+                </select>
+              </div>
+              <div class="form-group" id="custom-mic-container" style="display: none">
+                <label for="form-mic-custom" class="form-label">Custom Mic Name</label>
+                <input type="text" id="form-mic-custom" class="form-input" placeholder="e.g. Boom Mic 2" />
+              </div>
+            </div>
+            <!-- Notes -->
+            <div class="form-group">
+              <label for="form-notes" class="form-label">Audio / Stage Tech Notes (Optional)</label>
+              <input
+                type="text"
+                id="form-notes"
+                class="form-input"
+                placeholder="e.g. Soft spoken, clip right collar, walks stage"
+              />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close="speaker-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Speaker</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <!-- Global Microphone Inventory Manager Modal -->
+    <div id="mics-manager-modal" class="modal-backdrop">
+      <div class="modal-window modal-window-lg">
+        <div class="modal-header">
+          <h2 class="modal-title">🎙️ Global Microphone Inventory List</h2>
+          <button class="modal-close-btn" data-close="mics-manager-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 20px">
+            Customize the global list of wireless mics and audio channels available for assignment across your entire
+            event directory.
+          </p>
+          <!-- Add New Mic Box -->
+          <div class="add-mic-box" style="margin-bottom: 24px">
+            <h4 style="font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary)">
+              + Add New Microphone to Inventory
+            </h4>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap">
+              <input
+                type="text"
+                id="new-mic-name"
+                class="form-input"
+                placeholder="e.g. Lav 9 (Channel I) or Shure Beta 58 #1"
+                style="flex: 2; min-width: 200px"
+              />
+              <select id="new-mic-type" class="form-select" style="flex: 1; min-width: 140px">
+                <option value="lav">Lavalier / Lapel</option>
+                <option value="handheld">Handheld</option>
+                <option value="headset">Headset / Earset</option>
+                <option value="podium">Podium / Fixed</option>
+                <option value="none">Unassigned / Other</option>
+              </select>
+              <button id="btn-add-new-mic" class="btn btn-primary" style="white-space: nowrap">Add Mic</button>
+            </div>
+          </div>
+          <!-- Mic Inventory Category Groups -->
+          <div id="mic-inventory-container">
+            <!-- Injected by JS -->
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content: space-between">
+          <button type="button" id="btn-reset-mics" class="btn btn-danger" style="font-size: 0.8rem">
+            Reset to Default Mics
+          </button>
+          <button type="button" class="btn btn-secondary" data-close="mics-manager-modal">Done</button>
+        </div>
+      </div>
+    </div>
+    <!-- Online Photo Lookup & Google / LinkedIn Images Hub Modal -->
+    <div id="photo-lookup-modal" class="modal-backdrop">
+      <div class="modal-window modal-window-lg">
+        <div class="modal-header">
+          <h2 class="modal-title">Photo Lookup & LinkedIn / Google Images Hub</h2>
+          <button class="modal-close-btn" data-close="photo-lookup-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- Global Clipboard Quick Paste Bar -->
+          <div class="clipboard-paste-bar">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="font-size: 1.2rem">📋</span>
+              <span style="font-size: 0.85rem; color: var(--text-primary); font-weight: 600">
+                Copy any photo or image address from LinkedIn / Google Images & press
+                <kbd class="kbd">Ctrl+V</kbd>
+              </span>
+            </div>
+            <button
+              type="button"
+              id="btn-paste-clipboard"
+              class="btn btn-secondary"
+              style="padding: 6px 12px; font-size: 0.8rem"
+            >
+              Paste from Clipboard
+            </button>
+          </div>
+          <!-- Navigation Tabs -->
+          <div class="photo-tabs">
+            <button class="photo-tab-btn active" data-tab="tab-search">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              Live Web & Direct Search
+            </button>
+            <button class="photo-tab-btn" data-tab="tab-url">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
+              Paste Image URL
+            </button>
+            <button class="photo-tab-btn" data-tab="tab-upload">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              Upload File
+            </button>
+            <button class="photo-tab-btn" data-tab="tab-camera">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                <circle cx="12" cy="13" r="4"></circle>
+              </svg>
+              Take Photo (Camera)
+            </button>
+          </div>
+          <!-- Tab 1: Online Search & LinkedIn / Google Images Integration -->
+          <!-- Tab 1: Live In-App Google & Web Image Search -->
+          <div id="tab-search" class="photo-tab-panel active">
+            <!-- Direct Google Images & LinkedIn Quick Action Bar -->
+            <div
+              style="
+                display: flex;
+                gap: 8px;
+                margin-bottom: 12px;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                background: var(--surface-alt);
+                padding: 10px 14px;
+                border-radius: var(--radius-sm);
+                border: 1px solid var(--border-subtle);
+              "
+            >
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <a
+                  id="link-google-images"
+                  href="https://images.google.com"
+                  target="_blank"
+                  class="btn btn-secondary"
+                  style="
+                    font-size: 0.8rem;
+                    padding: 6px 12px;
+                    text-decoration: none;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                  "
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      fill="#4285F4"
+                    />
+                    <path
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      fill="#34A853"
+                    />
+                    <path
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      fill="#FBBC05"
+                    />
+                    <path
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      fill="#EA4335"
+                    />
+                  </svg>
+                  Google Images Search
+                </a>
+                <a
+                  id="link-linkedin-search"
+                  href="https://www.google.com/search?tbm=isch&q=site:linkedin.com/in/+profile+photo"
+                  target="_blank"
+                  class="btn btn-secondary"
+                  style="
+                    font-size: 0.8rem;
+                    padding: 6px 12px;
+                    text-decoration: none;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                  "
+                >
+                  &#128188; LinkedIn Headshots
+                </a>
+              </div>
+              <div style="font-size: 0.775rem; color: var(--text-muted)">
+                Press
+                <kbd class="kbd">Ctrl+V</kbd> to paste any copied image
+              </div>
+            </div>
+
+            <!-- Search Row -->
+            <div style="display: flex; gap: 10px; margin-bottom: 12px">
+              <div style="position: relative; flex: 1">
+                <input
+                  type="text"
+                  id="online-search-input"
+                  class="form-input"
+                  placeholder="Search speaker name on Google & Web images (e.g. 'Satya Nadella', 'Elena')..."
+                  style="padding-right: 32px"
+                />
+                <button
+                  type="button"
+                  id="btn-clear-photo-search"
+                  style="
+                    position: absolute;
+                    right: 10px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: none;
+                    border: none;
+                    color: var(--text-muted);
+                    cursor: pointer;
+                    display: none;
+                    font-size: 1rem;
+                  "
+                >
+                  &#10005;
+                </button>
+              </div>
+              <button id="btn-execute-search" class="btn btn-primary" style="min-width: 110px; gap: 6px">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Search
+              </button>
+            </div>
+
+            <!-- Live Results Grid -->
+            <div id="online-search-results" class="photo-results-grid" style="min-height: 240px; max-height: 380px">
+              <!-- Rendered dynamically by JS without filler -->
+            </div>
+
+            <!-- Quick Image URL Paste & Google CSE Settings Drawer -->
+            <div
+              style="
+                margin-top: 14px;
+                padding-top: 12px;
+                border-top: 1px solid var(--border-subtle);
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              "
+            >
+              <div style="display: flex; gap: 8px; align-items: center">
+                <input
+                  type="url"
+                  id="quick-url-input"
+                  class="form-input"
+                  placeholder="Or paste any copied image link (URL) directly..."
+                  style="font-size: 0.825rem; padding: 6px 12px; flex: 1"
+                />
+                <button
+                  type="button"
+                  id="btn-quick-url-apply"
+                  class="btn btn-secondary"
+                  style="font-size: 0.775rem; padding: 6px 14px; flex-shrink: 0"
+                >
+                  Apply URL
+                </button>
+              </div>
+
+              <!-- Interactive Google Search Guide Box -->
+              <div
+                class="google-guide-box"
+                style="
+                  background: var(--surface-alt);
+                  border: 1px solid var(--border-subtle);
+                  border-radius: var(--radius-sm);
+                  padding: 10px 14px;
+                "
+              >
+                <div
+                  style="display: flex; justify-content: space-between; align-items: center; cursor: pointer"
+                  id="toggle-google-guide-btn"
+                >
+                  <div
+                    style="
+                      font-weight: 600;
+                      font-size: 0.825rem;
+                      color: var(--text-primary);
+                      display: flex;
+                      align-items: center;
+                      gap: 6px;
+                    "
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                      <path
+                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"
+                      />
+                    </svg>
+                    <span>Google Search Setup Guide &amp; Free In-App API (Click to expand)</span>
+                  </div>
+                  <span id="google-guide-arrow" style="font-size: 0.75rem; color: var(--text-muted)">&#9660;</span>
+                </div>
+
+                <div
+                  id="google-guide-content"
+                  style="
+                    display: none;
+                    margin-top: 10px;
+                    font-size: 0.8rem;
+                    color: var(--text-secondary);
+                    line-height: 1.5;
+                    border-top: 1px solid var(--border-subtle);
+                    padding-top: 10px;
+                  "
+                >
+                  <div style="margin-bottom: 12px">
+                    <strong style="color: var(--accent); display: block; margin-bottom: 4px"
+                      >&#9654; Method 1: Instant Google Search &amp; Paste (No Setup Needed)</strong
+                    >
+                    <ol style="margin: 0 0 0 20px; padding: 0">
+                      <li>
+                        Click <strong>Google Images Search</strong> or <strong>LinkedIn Headshots</strong> above to open
+                        the exact speaker search.
+                      </li>
+                      <li>
+                        Right-click the best photo on Google and select <strong>"Copy Image"</strong> (or "Copy image
+                        address").
+                      </li>
+                      <li>
+                        Switch back to this window and press
+                        <kbd class="kbd">Ctrl+V</kbd>
+                        (or Cmd+V) to apply it instantly!
+                      </li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <strong style="color: var(--accent); display: block; margin-bottom: 4px"
+                      >&#9654; Method 2: Direct In-App Google Search (Free Google API Key)</strong
+                    >
+                    <ol style="margin: 0 0 8px 20px; padding: 0">
+                      <li>
+                        Get a free API key at
+                        <a
+                          href="https://console.cloud.google.com/apis/credentials"
+                          target="_blank"
+                          style="color: var(--link); text-decoration: underline"
+                          >Google Cloud Console</a
+                        >.
+                      </li>
+                      <li>
+                        Create an engine at
+                        <a
+                          href="https://programmablesearchengine.google.com/"
+                          target="_blank"
+                          style="color: var(--link); text-decoration: underline"
+                          >Google Programmable Search</a
+                        >
+                        (turn on <em>"Search the entire web"</em> and <em>"Image search"</em>).
+                      </li>
+                      <li>Enter your credentials below and click <strong>Save API Credentials</strong>:</li>
+                    </ol>
+                    <p
+                      id="gsearch-desktop-only-note"
+                      class="desktop-only-note"
+                      style="
+                        font-size: 0.8rem;
+                        color: var(--text-secondary);
+                        background: var(--surface-2);
+                        border: 1px solid var(--border-subtle);
+                        border-radius: var(--radius-sm);
+                        padding: 8px 12px;
+                        margin: 0 0 8px;
+                      "
+                      hidden
+                    >
+                      Needs the desktop app: keys are only stored encrypted.
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px">
+                      <input
+                        type="password"
+                        id="gsearch-api-key"
+                        class="form-input"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="Google API Key (AIzaSy...)"
+                        style="font-size: 0.775rem; padding: 6px 10px"
+                      />
+                      <input
+                        type="text"
+                        id="gsearch-cx-id"
+                        class="form-input"
+                        placeholder="Search Engine ID (CX)"
+                        style="font-size: 0.775rem; padding: 6px 10px"
+                      />
+                      <button
+                        type="button"
+                        id="btn-save-gsearch-keys"
+                        class="btn btn-secondary"
+                        style="font-size: 0.775rem; padding: 6px 12px"
+                      >
+                        Save API Credentials
+                      </button>
+                    </div>
+                    <div
+                      id="gsearch-api-status"
+                      style="font-size: 0.75rem; margin-top: 6px; color: var(--text-muted)"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Tab 2: Paste URL -->
+          <div id="tab-url" class="photo-tab-panel">
+            <div class="form-group">
+              <label class="form-label">Direct Image Web Address (URL)</label>
+              <input
+                type="url"
+                id="paste-url-input"
+                class="form-input"
+                placeholder="https://example.com/speaker-photo.jpg"
+              />
+            </div>
+            <div style="margin-top: 16px; text-align: center">
+              <button id="btn-preview-url" class="btn btn-primary">Use This Image</button>
+            </div>
+          </div>
+          <!-- Tab 3: Upload Local File -->
+          <div id="tab-upload" class="photo-tab-panel">
+            <div id="dropzone-box" class="dropzone">
+              <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <h3 style="font-size: 1.1rem; margin-bottom: 6px">Drag & drop speaker photo here</h3>
+              <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 16px">
+                PNG, JPG, WebP, GIF supported
+              </p>
+              <label class="btn btn-secondary" style="cursor: pointer">
+                Browse Local File
+                <input type="file" id="file-upload-input" accept="image/*" style="display: none" />
+              </label>
+            </div>
+          </div>
+          <!-- Tab 4: Camera Snap -->
+          <div id="tab-camera" class="photo-tab-panel">
+            <div class="camera-box">
+              <video id="camera-video" class="camera-video" autoplay playsinline></video>
+              <canvas id="camera-canvas" style="display: none"></canvas>
+              <div style="display: flex; gap: 12px">
+                <button id="btn-start-camera" class="btn btn-secondary">Start Camera</button>
+                <button id="btn-snap-camera" class="btn btn-primary" style="display: none">📸 Capture Photo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="photo-lookup-modal">Close</button>
+        </div>
+      </div>
+    </div>
+    <!-- Import / Export Modal -->
+    <div id="import-export-modal" class="modal-backdrop">
+      <div class="modal-window">
+        <div class="modal-header">
+          <h2 class="modal-title">Import & Export Directory</h2>
+          <button class="modal-close-btn" data-close="import-export-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Export Data</label>
+            <div style="display: flex; gap: 10px">
+              <button id="btn-export-csv" class="btn btn-primary" style="flex: 1">Export to CSV</button>
+              <button id="btn-export-json" class="btn btn-secondary" style="flex: 1">Export to JSON</button>
+            </div>
+          </div>
+          <hr style="border: none; border-top: 1px solid var(--border-subtle); margin: 24px 0" />
+          <div class="form-group">
+            <label class="form-label">Import from CSV / JSON File</label>
+            <label class="btn btn-secondary" style="width: 100%; cursor: pointer">
+              Upload CSV or JSON
+              <input type="file" id="import-file-input" accept=".csv, .json" style="display: none" />
+            </label>
+            <small style="color: var(--text-muted); display: block; margin-top: 8px"
+              >Supports CSV columns: Full Name, Title, Mic, Photo URL, Notes</small
+            >
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="import-export-modal">Close</button>
+        </div>
+      </div>
+    </div>
+    <!-- Backup Folder Modal: backups and run sheets saved in a folder that Google Drive for desktop (or OneDrive,
+         Dropbox) syncs. See js/sync-folder.js. -->
+    <div id="sync-modal" class="modal-backdrop">
+      <div class="modal-window" style="max-width: 620px">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <div class="sync-modal-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path
+                  d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"
+                />
+              </svg>
+            </div>
+            <div>
+              <h2 class="modal-title" style="margin-bottom: 2px">Backup Folder</h2>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0">
+                Back up, auto-save and restore projects in a folder that Google Drive, OneDrive or Dropbox syncs
+              </p>
+            </div>
+          </div>
+          <button class="modal-close-btn" data-close="sync-modal" title="Dismiss" aria-label="Dismiss">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px">
+          <p id="sync-unsupported-note" class="desktop-only-note sync-note" hidden>
+            Backup folders need the desktop app, or Chrome or Edge with the app opened from this computer (file:// or
+            http://localhost). Use <strong>Import / Export</strong> (JSON) to save a backup instead.
+          </p>
+
+          <!-- 1. Folder -->
+          <div id="sync-folder-section" class="sync-card">
+            <div style="font-weight: 600; font-size: 0.95rem">📁 Folder</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px">
+              Pick a folder inside Google Drive for desktop (for example <code class="code-chip">G:\My Drive</code> or
+              <code class="code-chip">G:\Shared drives\…</code>). The app saves its files in a
+              <strong>Speaker Photo Directory</strong> subfolder and Drive uploads them.
+            </div>
+
+            <div class="sync-folder-row">
+              <div style="min-width: 0">
+                <div id="sync-folder-label" style="font-weight: 600; font-size: 0.9rem">No folder chosen</div>
+                <div id="sync-folder-path" class="sync-folder-path" hidden></div>
+                <div id="sync-folder-status" style="font-size: 0.775rem; color: var(--text-muted)"></div>
+              </div>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end">
+                <button
+                  id="btn-sync-reconnect"
+                  class="btn btn-primary"
+                  style="padding: 4px 10px; font-size: 0.775rem"
+                  hidden
+                >
+                  Reconnect folder
+                </button>
+                <button
+                  id="btn-sync-choose-folder"
+                  class="btn btn-secondary"
+                  style="padding: 4px 10px; font-size: 0.775rem"
+                >
+                  Choose folder…
+                </button>
+                <button
+                  id="btn-sync-reveal-folder"
+                  class="btn btn-secondary"
+                  style="padding: 4px 10px; font-size: 0.775rem"
+                  title="Show the folder in Explorer / Finder"
+                  hidden
+                >
+                  Open
+                </button>
+                <button
+                  id="btn-sync-forget-folder"
+                  class="btn btn-secondary"
+                  style="padding: 4px 10px; font-size: 0.775rem"
+                  hidden
+                >
+                  Forget
+                </button>
+              </div>
+            </div>
+
+            <details class="sync-help">
+              <summary>📖 How it works with Google Drive</summary>
+              <ol>
+                <li>
+                  Install <strong>Google Drive for desktop</strong> and sign in. Your Drive shows up as a drive
+                  (Windows, usually <code class="code-chip">G:</code>) or under <em>Google Drive</em> in the Finder
+                  sidebar (macOS).
+                </li>
+                <li>Click <strong>Choose folder…</strong> and pick a folder in <em>My Drive</em> or a shared drive.</li>
+                <li>
+                  Every backup is a normal file in that folder, so Drive syncs it. On another computer, choose the same
+                  folder (or its <strong>Speaker Photo Directory</strong> subfolder) to see and restore the backups.
+                </li>
+                <li>
+                  In Chrome or Edge the browser asks for permission again after a restart: click
+                  <strong>Reconnect folder</strong>.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <!-- 2. Back up & export -->
+          <div id="sync-actions-section" class="sync-card sync-disabled">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 14px;
+                flex-wrap: wrap;
+                gap: 8px;
+              "
+            >
+              <div>
+                <div style="font-weight: 600; font-size: 0.95rem">🔄 Back up & export</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted)" id="sync-last-sync-label">
+                  Last backup: never
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <label
+                  style="font-size: 0.8rem; color: var(--text-secondary); cursor: pointer"
+                  for="sync-autosync-toggle"
+                  >Back up on every save:</label
+                >
+                <input type="checkbox" id="sync-autosync-toggle" style="cursor: pointer; transform: scale(1.2)" />
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+              <button id="btn-sync-now" class="btn btn-primary" style="justify-content: center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                </svg>
+                Back up now (JSON)
+              </button>
+              <button id="btn-sync-export-csv" class="btn btn-secondary" style="justify-content: center">
+                📤 Export CSV Run Sheet
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. Backups in the folder (restore) -->
+          <div id="sync-restore-section" class="sync-card sync-disabled">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px">
+              <div style="font-weight: 600; font-size: 0.95rem">🗂️ Backups in this folder</div>
+              <button
+                id="btn-sync-refresh-backups"
+                class="btn btn-secondary"
+                style="padding: 4px 10px; font-size: 0.775rem"
+              >
+                🔄 Refresh List
+              </button>
+            </div>
+            <div
+              id="sync-backups-container"
+              style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px"
+            >
+              <div style="text-align: center; color: var(--text-muted); font-size: 0.825rem; padding: 14px">
+                Choose a backup folder to see its backups.
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="sync-modal">Close</button>
+        </div>
+      </div>
+    </div>
+    <!-- Remove All Speakers Confirmation Modal -->
+    <div id="remove-all-modal" class="modal-backdrop">
+      <div class="modal-dialog modal-sm" style="max-width: 440px">
+        <div class="modal-header" style="border-bottom: 1px solid var(--border)">
+          <h3 class="modal-title" style="color: var(--danger); display: flex; align-items: center; gap: 8px">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            Remove All Speakers?
+          </h3>
+          <button class="modal-close" data-close="remove-all-modal" title="Dismiss" aria-label="Dismiss">
+            &times;
+          </button>
+        </div>
+        <div class="modal-body" style="padding: 20px">
+          <p style="margin-bottom: 12px; color: var(--text-primary); font-size: 0.95rem">
+            Are you sure you want to delete <strong id="remove-all-count-display">all speakers</strong> from your
+            directory?
+          </p>
+          <p style="font-size: 0.825rem; color: var(--text-muted); margin-bottom: 0">
+            This will clear your current directory list so you can start with a fresh slate. (You can restore default
+            demo speakers anytime using Reset Demo Data in Advanced mode).
+          </p>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px">
+          <button type="button" class="btn btn-secondary" data-close="remove-all-modal">Cancel</button>
+          <button type="button" id="btn-confirm-remove-all" class="btn btn-danger btn-danger-solid">
+            Yes, Remove All
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- Quick Mic Change Floating Menu -->
+    <div id="quick-mic-menu" class="mic-picker-menu">
+      <!-- Rendered dynamically on click -->
+    </div>
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+    <script src="js/data.js?v=2"></script>
+    <script src="js/util.js?v=3"></script>
+    <script src="js/secrets.js?v=2"></script>
+    <script src="js/sync-folder.js?v=1"></script>
+    <script src="js/sync-controller.js?v=1"></script>
+    <script src="js/app-core.js?v=1"></script>
+    <script src="js/app-projects.js?v=2"></script>
+    <script src="js/app-speakers.js?v=1"></script>
+    <script src="js/app-mics.js?v=1"></script>
+    <script src="js/app-photos.js?v=1"></script>
+    <script src="js/app-print.js?v=1"></script>
+    <script src="js/app-io.js?v=1"></script>
+    <script src="js/app-ui.js?v=1"></script>
+    <script src="js/main.js?v=2"></script>
+  </body>
+</html>

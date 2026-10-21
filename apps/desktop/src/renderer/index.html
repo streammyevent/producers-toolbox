@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' app:; img-src 'self' app: data:; style-src 'self' app: 'unsafe-inline'"
+    />
+    <title>Producers Toolbox</title>
+    <script src="theme-init.js"></script>
+    <link rel="stylesheet" href="launcher.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 24">
+            <polygon points="4,22 14,2 20,2 10,22" fill="#fff"></polygon>
+            <polygon points="16,22 26,2 32,2 22,22" fill="#fff"></polygon>
+          </svg>
+        </div>
+        <span class="brand-name">Producers Toolbox</span>
+      </div>
+      <label class="search">
+        <svg class="ico ico-sm" viewBox="0 0 24 24">
+          <path d="M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.3-4.3"></path>
+        </svg>
+        <input id="search" type="search" placeholder="Search tools" aria-label="Search tools" autocomplete="off" />
+      </label>
+      <div class="header-actions">
+        <button id="updatePill" class="btn btn-primary btn-sm hidden" type="button">Restart to update</button>
+        <button id="themeToggle" class="icon-btn" type="button" title="Toggle light / dark" aria-label="Toggle theme">
+          <svg class="ico theme-icon-moon" viewBox="0 0 24 24">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"></path>
+          </svg>
+          <svg class="ico theme-icon-sun" viewBox="0 0 24 24">
+            <path
+              d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+            ></path>
+          </svg>
+        </button>
+        <div class="dropdown">
+          <button
+            id="menuBtn"
+            class="icon-btn"
+            type="button"
+            title="Menu"
+            aria-label="Menu"
+            aria-haspopup="menu"
+            aria-expanded="false"
+          >
+            <svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+          </button>
+          <div id="menu" class="dropdown-menu hidden" role="menu">
+            <button class="dropdown-item" role="menuitem" data-action="updates">Check for updates</button>
+            <div class="dropdown-sep"></div>
+            <button class="dropdown-item" role="menuitem" data-action="settings">Settings</button>
+            <button class="dropdown-item" role="menuitem" data-action="about">About</button>
+            <div class="dropdown-sep"></div>
+            <button class="dropdown-item" role="menuitem" data-action="uninstall">Uninstall Toolbox</button>
+            <button class="dropdown-item" role="menuitem" data-action="quit">Quit</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div id="grid" aria-live="polite"></div>
+    </main>
+
+    <div id="settingsModal" class="modal-backdrop hidden">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="modal-header">
+          <h2 id="settingsTitle" class="modal-title">Settings</h2>
+          <button class="modal-close-btn" type="button" data-close aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            <span>Theme</span>
+            <select id="setTheme">
+              <option value="system">Match system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="setStart" /> <span>Start with Windows</span></label>
+          <label class="check"
+            ><input type="checkbox" id="setTray" /> <span>Keep running in the tray when closed</span></label
+          >
+          <label class="check"
+            ><input type="checkbox" id="setUpdates" /> <span>Check for updates automatically</span></label
+          >
+          <div id="hiddenRow" class="hidden-row hidden">
+            <span id="hiddenText"></span>
+            <button id="restoreHidden" class="btn btn-secondary btn-sm" type="button">Show again</button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" data-close>Cancel</button>
+          <button id="settingsSave" class="btn btn-primary" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="aboutModal" class="modal-backdrop hidden">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+        <div class="modal-header">
+          <h2 id="aboutTitle" class="modal-title">About</h2>
+          <button class="modal-close-btn" type="button" data-close aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body"><p id="aboutText"></p></div>
+        <div class="modal-footer"><button class="btn btn-secondary" type="button" data-close>Close</button></div>
+      </div>
+    </div>
+
+    <div id="updatesModal" class="modal-backdrop hidden">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="updatesTitle">
+        <div class="modal-header">
+          <h2 id="updatesTitle" class="modal-title">Updates</h2>
+          <button class="modal-close-btn" type="button" data-close aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p id="updAppStatus" class="upd-status"></p>
+          <div id="updProgress" class="progress hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="updCheck" class="btn btn-secondary" type="button">Check again</button>
+          <button id="updRestart" class="btn btn-primary hidden" type="button">Restart to update</button>
+          <button class="btn btn-secondary" type="button" data-close>Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="launcher.js"></script>
+  </body>
+</html>

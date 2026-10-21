@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "id": "iTest1",
+      "name": "Test DMX Cable 5m",
+      "buyPrice": 11.9,
+      "buyIncl": true,
+      "vat": 21,
+      "margin": 15,
+      "extOverride": null,
+      "link": ""
+    },
+    {
+      "id": "iTest2",
+      "name": "Test LED Bar",
+      "buyPrice": 150,
+      "buyIncl": true,
+      "vat": 21,
+      "margin": 20,
+      "extOverride": null,
+      "link": ""
+    }
+  ],
+  "quotes": [],
+  "activeQuote": null
+}

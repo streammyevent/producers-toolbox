@@ -1,0 +1,46 @@
+# ---- Dependencies and build output ----
+node_modules/
+dist/
+out/
+/apps/*/release/
+.turbo/
+
+# ---- Test output ----
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# ---- Secrets, keys, local config ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+credentials*.json
+client_secret*.json
+
+# ---- Local data and notes that must never be committed ----
+storage_config.json
+shared-drive-data/
+graphify-out/
+HANDOFF.md
+*.local.md
+*.local.json
+.claude/settings.local.json
+.claude/worktrees/
+.claude/plans/
+
+# ---- Logs, OS and editor clutter ----
+*.log
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+*.lnk
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.code-workspace

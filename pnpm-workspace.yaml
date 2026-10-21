@@ -1,0 +1,24 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+# Build scripts are off unless listed here as true.
+allowBuilds:
+  # Only used by electron-builder's Squirrel.Windows target; we build NSIS
+  electron-winstaller: false
+# pnpm holds back versions younger than a day. These pins were newer than that when they were added.
+minimumReleaseAgeExclude:
+  - "@turbo/darwin-64@2.11.10"
+  - "@turbo/darwin-arm64@2.11.10"
+  - "@turbo/linux-64@2.11.10"
+  - "@turbo/linux-arm64@2.11.10"
+  - "@turbo/windows-64@2.11.10"
+  - "@turbo/windows-arm64@2.11.10"
+  - app-builder-lib@26.18.0
+  - dmg-builder@26.18.0
+  - electron-builder-squirrel-windows@26.18.0
+  - electron-builder@26.18.0
+  - electron-publish@26.18.0
+  - electron-updater@6.8.11
+  - electron@44.9.3
+  - turbo@2.11.10

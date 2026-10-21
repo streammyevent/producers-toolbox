@@ -1,0 +1,25 @@
+{
+  "name": "@producers-toolbox/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Producers Toolbox: the desktop app that hosts the Stream My Event producer tools",
+  "author": "Stream My Event",
+  "license": "UNLICENSED",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/*.e2e.js\"",
+    "pack": "electron-builder --dir --publish never",
+    "dist": "electron-builder --publish never",
+    "icon": "node scripts/make-icon.js"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "^26.18.0",
+    "playwright-core": "1.64.1"
+  }
+}

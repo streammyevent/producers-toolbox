@@ -1,0 +1,1395 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Content Card Studio</title>
+    <meta name="theme-color" content="#D7263D" />
+    <link rel="icon" type="image/png" href="assets/app-icon.png" />
+    <script>
+      // Apply the saved (or system) theme before the first paint
+      (function () {
+        var theme = null;
+        try {
+          theme = localStorage.getItem("ccs_theme");
+        } catch (e) {}
+        if (theme !== "light" && theme !== "dark") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Top bar -->
+    <header class="app-header no-print">
+      <div class="header-left">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 24">
+            <polygon points="4,22 14,2 20,2 10,22" fill="#fff"></polygon>
+            <polygon points="16,22 26,2 32,2 22,22" fill="#fff"></polygon>
+          </svg>
+        </div>
+        <span class="brand-name">Content Card Studio</span>
+        <span class="header-sep" aria-hidden="true"></span>
+        <div class="header-card">
+          <span class="header-card-name" id="headerCardName">Untitled card</span>
+          <span class="save-state" id="saveState"
+            ><span class="save-dot"></span><span id="saveStateText">Saved</span></span
+          >
+        </div>
+      </div>
+
+      <div class="header-history">
+        <button id="undoBtn" class="icon-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
+          <svg class="ico" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path></svg>
+        </button>
+        <button id="redoBtn" class="icon-btn" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>
+          <svg class="ico" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"></path></svg>
+        </button>
+      </div>
+
+      <div class="header-right">
+        <button id="openStorageSettingsBtn" class="drive-pill" title="Shared Drive settings">
+          <svg class="ico ico-sm" viewBox="0 0 24 24">
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"></path>
+          </svg>
+          <span id="storageDriveStatusDot" class="status-dot"></span>
+          <span id="drivePillText">Shared Drive</span>
+        </button>
+        <button
+          id="themeToggleBtn"
+          class="icon-btn icon-btn-outline"
+          type="button"
+          title="Switch to dark mode"
+          aria-label="Switch to dark mode"
+        >
+          <svg class="ico theme-icon-moon" viewBox="0 0 24 24">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"></path>
+          </svg>
+          <svg class="ico theme-icon-sun" viewBox="0 0 24 24">
+            <path
+              d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+            ></path>
+          </svg>
+        </button>
+        <button id="exportImageBtn" class="btn btn-secondary" title="Download a high-resolution PNG">
+          <svg class="ico ico-sm" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path>
+          </svg>
+          <span class="btn-label-wide">Export PNG</span>
+        </button>
+        <button id="batchPrintBtn" class="btn btn-secondary" title="Print several cards on one sheet">
+          <svg class="ico ico-sm" viewBox="0 0 24 24">
+            <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"></path>
+          </svg>
+          <span class="btn-label-wide">Multi-print</span>
+        </button>
+        <div class="print-split-btn-wrap">
+          <button id="printBtn" class="btn btn-primary" title="Print this card at real size (Ctrl+P)">
+            <svg class="ico ico-sm" viewBox="0 0 24 24">
+              <path
+                d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"
+              ></path>
+            </svg>
+            Print
+          </button>
+          <button
+            id="printDropdownBtn"
+            class="btn btn-primary"
+            title="Print on a paper size"
+            aria-label="Print options"
+          >
+            <svg class="ico ico-sm" viewBox="0 0 24 24" style="stroke-width: 2.2"><path d="m6 9 6 6 6-6"></path></svg>
+          </button>
+          <div id="printDropdownMenu" class="dropdown-menu hidden">
+            <div class="dropdown-label">Print this card on</div>
+            <button type="button" class="dropdown-item print-paper-item" data-paper="auto">
+              Exact card size <span class="dropdown-meta">no margins</span>
+            </button>
+            <button type="button" class="dropdown-item print-paper-item" data-paper="a5">
+              DIN A5 <span class="dropdown-meta">148 × 210</span>
+            </button>
+            <button type="button" class="dropdown-item print-paper-item" data-paper="a6">
+              DIN A6 <span class="dropdown-meta">105 × 148</span>
+            </button>
+            <button type="button" class="dropdown-item print-paper-item" data-paper="a4">
+              DIN A4 <span class="dropdown-meta">210 × 297</span>
+            </button>
+            <div class="dropdown-sep"></div>
+            <button type="button" class="dropdown-item" id="printDropdownBatchBtn">Several cards on one sheet…</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="studio-container">
+      <!-- Left menu -->
+      <nav class="app-rail no-print" aria-label="Sections">
+        <button type="button" class="rail-btn tab-btn active" id="railEditorBtn" data-tab="tab-content">
+          <svg class="ico" viewBox="0 0 24 24">
+            <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path>
+          </svg>
+          Editor
+        </button>
+        <button type="button" class="rail-btn tab-btn" data-tab="tab-library">
+          <svg class="ico" viewBox="0 0 24 24">
+            <path d="m12 2 10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+          </svg>
+          Library
+        </button>
+        <button type="button" class="rail-btn tab-btn" id="assetDbBtn" data-tab="tab-gear-db" title="Gear database">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"></path></svg>
+          Gear
+        </button>
+        <button type="button" class="rail-btn" id="openRentmanBtn" title="Import from Rentman">
+          <svg class="ico" viewBox="0 0 24 24">
+            <path d="M12 13v8M8 17l4 4 4-4M20.9 15.5A5 5 0 0 0 18 7h-1.3A8 8 0 1 0 4 15.3"></path>
+          </svg>
+          Rentman
+        </button>
+        <div class="rail-spacer"></div>
+        <button type="button" class="rail-btn" id="railSettingsBtn" title="Shared Drive settings">
+          <svg class="ico" viewBox="0 0 24 24">
+            <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path>
+          </svg>
+          Settings
+        </button>
+      </nav>
+
+      <!-- Side panel -->
+      <aside class="sidebar-panel no-print" id="sidebarPanel" data-section="editor">
+        <div class="panel-head">
+          <div class="segmented" role="tablist" aria-label="Editor tabs">
+            <button type="button" role="tab" class="seg-btn tab-btn active" data-tab="tab-content">Content</button>
+            <button type="button" role="tab" class="seg-btn tab-btn" data-tab="tab-layout">Design</button>
+            <button type="button" role="tab" class="seg-btn tab-btn" data-tab="tab-branding">Branding</button>
+          </div>
+        </div>
+
+        <div class="tabs-content">
+          <!-- CONTENT -->
+          <div id="tab-content" class="tab-pane active">
+            <div class="pane-scroll">
+              <section class="control-section">
+                <h3 class="section-title">Card</h3>
+                <div class="form-group">
+                  <label for="inputTitle">Title</label>
+                  <input type="text" id="inputTitle" placeholder="e.g. Astera AX3" value="Astera AX3" />
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="inputSubtitle">Subtitle</label>
+                    <input type="text" id="inputSubtitle" placeholder="e.g. Lightdrop set" value="Lightdrop" />
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="inputCaseTag">Case tag</label>
+                    <input type="text" id="inputCaseTag" class="mono-input" placeholder="e.g. CASE-04" value="" />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="inputHeaderStyle">Title alignment</label>
+                  <select id="inputHeaderStyle">
+                    <option value="center">Centered</option>
+                    <option value="left">Left aligned</option>
+                    <option value="compact">Compact</option>
+                  </select>
+                </div>
+              </section>
+
+              <section class="control-section">
+                <div class="section-header-flex">
+                  <h3 class="section-title">Items <span class="section-value" id="itemsCount">0</span></h3>
+                  <div class="btn-group-sm">
+                    <button
+                      id="importWebBtn"
+                      class="btn btn-secondary btn-sm"
+                      title="Import the contents from a webshop product page"
+                    >
+                      Import
+                    </button>
+                    <button id="addEmptyRowBtn" class="btn btn-secondary btn-sm" title="Add an empty row at the bottom">
+                      Add row
+                    </button>
+                    <button id="addItemBtn" class="btn btn-secondary btn-sm" title="Add a row and pick its photo">
+                      <svg class="ico ico-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+                      Add item
+                    </button>
+                  </div>
+                </div>
+                <div id="itemsListContainer" class="items-editor-list">
+                  <!-- Dynamically populated rows -->
+                </div>
+                <p class="tip-banner">
+                  Drag rows to reorder. Click a photo to drop, paste (<span class="kbd">Ctrl V</span>) or pick a new
+                  one.
+                </p>
+              </section>
+            </div>
+          </div>
+
+          <!-- DESIGN -->
+          <div id="tab-layout" class="tab-pane">
+            <div class="pane-scroll">
+              <section class="control-section">
+                <h3 class="section-title">Size</h3>
+                <div class="form-group">
+                  <label for="dimensionPreset">Card size</label>
+                  <select id="dimensionPreset">
+                    <option value="148x210" selected>DIN A5 · 148 × 210 mm (SME standard)</option>
+                    <option value="105x148">DIN A6 · 105 × 148 mm (pouch)</option>
+                    <option value="100x150">100 × 150 mm (photo size pouch)</option>
+                    <option value="a4-strip-292">Long card, 2 side by side on A4 · 97.5 × 287 mm</option>
+                    <option value="a4-292">DIN A4 full · 205 × 292 mm</option>
+                    <option value="90x140">90 × 140 mm (Peli 1510 lid)</option>
+                    <option value="99x210">DIN DL · 99 × 210 mm</option>
+                    <option value="85x54">ID card · 85 × 54 mm</option>
+                    <option value="custom">Custom size</option>
+                  </select>
+                </div>
+                <div id="customDimsRow" class="form-row hidden">
+                  <div class="form-group flex-1">
+                    <label for="customWidth">Width (mm)</label>
+                    <input type="number" id="customWidth" value="148" min="40" max="400" step="0.5" />
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="customHeight">Height (mm)</label>
+                    <input type="number" id="customHeight" value="210" min="40" max="600" step="0.5" />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="orientationSelect">Orientation</label>
+                  <select id="orientationSelect">
+                    <option value="portrait" selected>Portrait</option>
+                    <option value="landscape">Landscape</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <span class="field-label">Print this card on</span>
+                  <div class="form-row">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm flex-1"
+                      id="quickPrintA5Btn"
+                      title="Print on DIN A5 (148 × 210 mm)"
+                    >
+                      A5
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm flex-1"
+                      id="quickPrintA6Btn"
+                      title="Print on DIN A6 (105 × 148 mm)"
+                    >
+                      A6
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm flex-1"
+                      id="quickPrintA4Btn"
+                      title="Print on DIN A4 (210 × 297 mm)"
+                    >
+                      A4
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="control-section">
+                <h3 class="section-title">Layout</h3>
+                <div class="form-group">
+                  <div class="range-label">
+                    <label for="fontSizeSlider">Text size</label
+                    ><span class="section-value" id="fontSizeSliderValue">100% (11.5px)</span>
+                  </div>
+                  <input type="range" id="fontSizeSlider" min="70" max="160" value="100" step="2" />
+                  <div class="chip-row">
+                    <button type="button" class="btn btn-secondary font-preset-btn" data-scale="85">Compact</button>
+                    <button type="button" class="btn btn-secondary font-preset-btn active" data-scale="100">
+                      Standard
+                    </button>
+                    <button type="button" class="btn btn-secondary font-preset-btn" data-scale="120">Large</button>
+                    <button type="button" class="btn btn-secondary font-preset-btn" data-scale="140">
+                      Extra large
+                    </button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <div class="range-label">
+                    <label for="photoColWidthSlider">Photo column</label
+                    ><span class="section-value" id="photoColWidthValue">52px (~14mm)</span>
+                  </div>
+                  <input type="range" id="photoColWidthSlider" min="25" max="160" value="52" step="1" />
+                  <div class="chip-row">
+                    <button type="button" class="btn btn-secondary photo-preset-btn" data-width="36">Narrow</button>
+                    <button type="button" class="btn btn-secondary photo-preset-btn active" data-width="52">
+                      Standard
+                    </button>
+                    <button type="button" class="btn btn-secondary photo-preset-btn" data-width="75">Medium</button>
+                    <button type="button" class="btn btn-secondary photo-preset-btn" data-width="105">Wide</button>
+                  </div>
+                  <span class="hint-text">You can also drag the line next to the photos on the card.</span>
+                </div>
+                <div class="form-group">
+                  <div class="range-label">
+                    <label for="printerMarginSlider">Printer safety margin</label
+                    ><span class="section-value" id="printerMarginValue">5 mm (Standard)</span>
+                  </div>
+                  <div class="range-row">
+                    <input type="range" id="printerMarginSlider" min="0" max="20" value="5" step="0.5" />
+                    <label class="sr-only" for="printerMarginInput">Margin in mm</label>
+                    <input type="number" id="printerMarginInput" min="0" max="25" value="5" step="0.5" />
+                  </div>
+                  <div class="section-header-flex">
+                    <label class="checkbox-label" title="Show the safety margin line on the preview">
+                      <input type="checkbox" id="showPrinterMarginGuide" checked />
+                      <span>Show margin guide</span>
+                    </label>
+                    <button type="button" class="btn btn-ghost btn-xs" id="resetPrinterMarginBtn">Reset to 5 mm</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="control-section">
+                <h3 class="section-title">Background</h3>
+                <label class="checkbox-label toggle-row">
+                  <span>Show background pattern<small>On screen and when printing</small></span>
+                  <input type="checkbox" id="showWatermark" checked />
+                </label>
+                <div class="form-group" id="watermarkPatternGroup">
+                  <label for="watermarkPattern">Pattern</label>
+                  <select id="watermarkPattern">
+                    <option value="diamonds" selected>Argyle diamonds</option>
+                    <option value="geometric">Geometric grid</option>
+                    <option value="honeycomb">Honeycomb</option>
+                    <option value="dots">Dot matrix</option>
+                    <option value="clean">Plain white</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1" id="watermarkOpacityGroup">
+                    <label for="watermarkOpacity">Intensity</label>
+                    <input type="range" id="watermarkOpacity" min="2" max="30" value="12" />
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="cardBorderRadius">Corners</label>
+                    <select id="cardBorderRadius">
+                      <option value="12px" selected>Rounded · 12 px</option>
+                      <option value="6px">Subtle · 6 px</option>
+                      <option value="0px">Square</option>
+                    </select>
+                  </div>
+                </div>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="showCutMarks" checked />
+                  <span>Show cut marks for trimming</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="highContrastPhotos" checked />
+                  <span>Boost photo contrast for black and white printing</span>
+                </label>
+              </section>
+            </div>
+          </div>
+
+          <!-- BRANDING -->
+          <div id="tab-branding" class="tab-pane">
+            <div class="pane-scroll">
+              <section class="control-section">
+                <div class="section-header-flex">
+                  <h3 class="section-title">Footer</h3>
+                  <button
+                    id="applySmeBrandBtn"
+                    class="btn btn-secondary btn-sm"
+                    title="Fill in the Stream My Event details"
+                  >
+                    Use Stream My Event
+                  </button>
+                </div>
+                <div class="form-group">
+                  <label for="companyName">Company name</label>
+                  <input type="text" id="companyName" placeholder="Leave empty to hide" value="STREAM MY EVENT" />
+                </div>
+                <div class="form-group">
+                  <label for="companyPhone">Phone</label>
+                  <input type="text" id="companyPhone" placeholder="e.g. +31(0)20 369 0970" value="+31(0)20 369 0970" />
+                </div>
+                <div class="form-group">
+                  <label for="companyWebsite">Website or email</label>
+                  <input
+                    type="text"
+                    id="companyWebsite"
+                    placeholder="e.g. www.streammyevent.com"
+                    value="www.streammyevent.com"
+                  />
+                </div>
+              </section>
+
+              <section class="control-section">
+                <h3 class="section-title">Logo</h3>
+                <div class="logo-selector-row">
+                  <button type="button" class="btn btn-secondary logo-preset-btn active" data-logo="sme-live">
+                    <span class="logo-dot" style="background: #e11d48"></span> Stream My Event
+                  </button>
+                  <button type="button" class="btn btn-secondary logo-preset-btn" data-logo="av-red">
+                    <span class="logo-dot" style="background: #dc2626"></span> Red triangles
+                  </button>
+                  <button type="button" class="btn btn-secondary logo-preset-btn" data-logo="generic-blue">
+                    <span class="logo-dot" style="background: #0284c7"></span> Blue shield
+                  </button>
+                  <button type="button" class="btn btn-secondary logo-preset-btn" data-logo="broadcast-amber">
+                    <span class="logo-dot" style="background: #f59e0b"></span> Broadcast
+                  </button>
+                  <label class="btn btn-secondary custom-logo-upload" title="Upload your own logo">
+                    <input type="file" id="customLogoFile" accept="image/*" hidden />
+                    Upload logo…
+                  </label>
+                </div>
+              </section>
+
+              <section class="control-section">
+                <h3 class="section-title">QR code</h3>
+                <label class="checkbox-label toggle-row">
+                  <span>QR code in the footer<small>Link to a manual, spec sheet or asset page</small></span>
+                  <input type="checkbox" id="enableQrCode" />
+                </label>
+                <div id="qrConfigGroup" class="form-group hidden">
+                  <label for="qrUrlInput">Link or asset ID</label>
+                  <input
+                    type="text"
+                    id="qrUrlInput"
+                    placeholder="https://streammyevent.com"
+                    value="https://streammyevent.com"
+                  />
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <!-- GEAR DATABASE -->
+          <div id="tab-gear-db" class="tab-pane">
+            <div class="pane-head">
+              <div>
+                <h2 class="pane-title">Gear database</h2>
+                <div class="pane-sub"><span id="dbGearCount">0</span> items · shared with every card</div>
+              </div>
+              <button id="addNewGearItemBtn" class="btn btn-primary btn-sm">
+                <svg class="ico ico-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+                New gear
+              </button>
+            </div>
+            <div class="pane-scroll" style="gap: 12px">
+              <label class="sr-only" for="gearDbSearchInput">Search gear</label>
+              <input type="search" id="gearDbSearchInput" placeholder="Search name, code or alias" />
+              <label class="sr-only" for="gearDbCategoryFilter">Category</label>
+              <select id="gearDbCategoryFilter">
+                <option value="all" selected>All categories</option>
+                <option value="cables">Cables</option>
+                <option value="lighting">Lighting and optics</option>
+                <option value="rigging">Rigging and clamps</option>
+                <option value="audio">Audio</option>
+                <option value="video">Video</option>
+                <option value="power">Power</option>
+                <option value="accessories">Accessories</option>
+                <option value="custom">My uploads</option>
+              </select>
+              <p class="tip-banner">
+                Photos here are reused automatically: type an item on any card and a matching photo is filled in.
+              </p>
+              <div id="gearDbItemsList" class="gear-db-grid">
+                <!-- Dynamically populated gear cards -->
+              </div>
+              <button
+                id="resetGearDbBtn"
+                class="btn btn-ghost btn-xs"
+                style="align-self: flex-start"
+                title="Restore the built-in catalogue"
+              >
+                Restore built-in catalogue
+              </button>
+            </div>
+            <div class="pane-foot">
+              <button
+                id="syncCardPhotosToDbBtn"
+                class="btn btn-secondary"
+                title="Save the photos of the open card into the gear database"
+              >
+                Save card photos
+              </button>
+              <button id="openRentmanFromGearDbBtn" class="btn btn-secondary" title="Import photos from Rentman">
+                From Rentman
+              </button>
+            </div>
+          </div>
+
+          <!-- LIBRARY -->
+          <div id="tab-library" class="tab-pane">
+            <div class="pane-head">
+              <div>
+                <h2 class="pane-title">Library</h2>
+                <div class="pane-sub">Saved cards · synced to the Shared Drive when connected</div>
+              </div>
+            </div>
+            <div class="pane-scroll" style="gap: 12px">
+              <div id="savedCasesList" class="saved-cases-list">
+                <!-- Dynamically populated saved cases -->
+              </div>
+            </div>
+            <div class="pane-foot">
+              <button id="importJsonBtn" class="btn btn-secondary">Import JSON</button>
+              <input type="file" id="importJsonInput" accept=".json" hidden />
+              <button id="exportJsonBtn" class="btn btn-secondary">Export all</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-foot">
+          <button id="saveLibraryBtn" class="btn btn-secondary" title="Save to library (Ctrl+S)">
+            Save to library <span class="kbd">Ctrl S</span>
+          </button>
+          <button id="newCardBtn" class="btn btn-secondary btn-new" title="Start a new card">New card</button>
+        </div>
+      </aside>
+
+      <!-- Canvas -->
+      <section class="preview-stage">
+        <div class="stage-top no-print">
+          <span class="dims-badge" id="cardDimsBadge">DIN A5 (148 × 210 mm)</span>
+          <span class="inline-edit-hint">Click any text on the card to edit it</span>
+        </div>
+
+        <div class="stage-viewport" id="stageViewport">
+          <div class="card-scaler" id="cardScaler">
+            <!-- PRINT CARD CONTAINER (1:1 PHYSICAL DIMENSION CSS) -->
+            <div class="flightcase-card" id="flightcaseCard" data-pattern="diamonds">
+              <!-- Cut guide marks (Visible when enabled) -->
+              <div class="cut-mark cut-top-left"></div>
+              <div class="cut-mark cut-top-right"></div>
+              <div class="cut-mark cut-bottom-left"></div>
+              <div class="cut-mark cut-bottom-right"></div>
+
+              <!-- Printer Safety Margin Guide (5mm standard editable) -->
+              <div
+                class="printer-margin-guide"
+                id="printerMarginGuide"
+                data-label="5mm Safety Margin"
+                title="Printer safety margin guide (standard 5mm)"
+                data-html2canvas-ignore="true"
+              ></div>
+
+              <!-- Card Background Watermark Canvas / Pattern -->
+              <div class="card-watermark" id="cardWatermark"></div>
+
+              <!-- Card Inner Content -->
+              <div class="card-inner">
+                <!-- CARD HEADER -->
+                <header class="card-header" id="cardHeader">
+                  <div class="card-title-wrap">
+                    <h1 class="card-title" id="cardTitleDisplay" contenteditable="true" spellcheck="false">
+                      Astera AX3
+                    </h1>
+                    <h2 class="card-subtitle" id="cardSubtitleDisplay" contenteditable="true" spellcheck="false">
+                      Lightdrop
+                    </h2>
+                  </div>
+                  <div class="card-tag-badge" id="cardTagBadgeDisplay" style="display: none"></div>
+                </header>
+
+                <!-- CARD EQUIPMENT TABLE -->
+                <div class="card-table-wrap">
+                  <table class="card-table" id="cardTable">
+                    <tbody id="cardTableBody">
+                      <!-- Dynamically generated rows matching reference -->
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- CARD FOOTER -->
+                <footer class="card-footer" id="cardFooter">
+                  <div class="footer-brand-lockup">
+                    <div class="footer-logo-svg" id="footerLogoDisplay">
+                      <!-- Red Triangles Logo SVG default -->
+                      <svg viewBox="0 0 40 24" class="logo-icon-svg">
+                        <polygon points="4,22 14,2 20,2 10,22" fill="#d90429"></polygon>
+                        <polygon points="16,22 26,2 32,2 22,22" fill="#d90429"></polygon>
+                      </svg>
+                    </div>
+                    <span
+                      class="footer-company-name"
+                      id="footerCompanyNameDisplay"
+                      contenteditable="true"
+                      spellcheck="false"
+                    ></span>
+                  </div>
+
+                  <div class="footer-divider">|</div>
+
+                  <div class="footer-contact-item">
+                    <span class="footer-phone" id="footerPhoneDisplay" contenteditable="true" spellcheck="false"
+                      >+31(0)85 303 42 88</span
+                    >
+                  </div>
+
+                  <div class="footer-divider">|</div>
+
+                  <div class="footer-contact-item">
+                    <span class="footer-website" id="footerWebsiteDisplay" contenteditable="true" spellcheck="false"
+                      >www.av-supplier.nl</span
+                    >
+                  </div>
+
+                  <div class="footer-qr-wrap" id="footerQrWrap" style="display: none">
+                    <div id="footerQrCode" class="footer-qr-img"></div>
+                  </div>
+                </footer>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="zoom-pill no-print">
+          <button id="zoomOutBtn" class="icon-btn" title="Zoom out" aria-label="Zoom out">
+            <svg class="ico ico-sm" viewBox="0 0 24 24" style="stroke-width: 2"><path d="M5 12h14"></path></svg>
+          </button>
+          <span id="zoomLevelText" class="zoom-text">100%</span>
+          <button id="zoomInBtn" class="icon-btn" title="Zoom in" aria-label="Zoom in">
+            <svg class="ico ico-sm" viewBox="0 0 24 24" style="stroke-width: 2"><path d="M12 5v14M5 12h14"></path></svg>
+          </button>
+          <span class="zoom-sep" aria-hidden="true"></span>
+          <button id="zoomFitBtn" class="btn" title="Fit to screen">Fit</button>
+          <button id="zoom100Btn" class="btn" title="Actual size">1:1</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- MULTI-PRINT -->
+    <div id="batchModal" class="modal-backdrop hidden no-print">
+      <div class="modal-dialog batch-dialog" role="dialog" aria-labelledby="batchModalTitle">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="batchModalTitle">Print multiple cards</h2>
+            <p class="modal-subtitle">Pick cards and copies. Margins and the cutting gap are applied exactly.</p>
+          </div>
+          <button class="modal-close-btn" id="closeBatchModalBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body batch-body">
+          <div class="batch-col">
+            <div class="batch-section-head">
+              <h3 class="section-title">Cards</h3>
+              <span class="batch-select-links">
+                <button type="button" class="btn btn-xs btn-secondary" id="batchSelectAllBtn">Select all</button>
+                <button type="button" class="btn btn-xs btn-secondary" id="batchSelectNoneBtn">None</button>
+              </span>
+            </div>
+            <div id="batchCardList" class="batch-card-list">
+              <!-- Open card + saved cases, filled by renderBatchCardList() -->
+            </div>
+            <p class="batch-hint">
+              Tick the cards you want and set the copies. Save a card to the library to include it here.
+            </p>
+          </div>
+
+          <div class="batch-col">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="sheetFormat">Paper</label>
+                <select id="sheetFormat">
+                  <option value="a4">DIN A4 · 210 × 297 mm</option>
+                  <option value="a5">DIN A5 · 148 × 210 mm</option>
+                  <option value="a6">DIN A6 · 105 × 148 mm</option>
+                  <option value="letter">US Letter · 8.5 × 11 in</option>
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label for="sheetGridCount">Cards per sheet</label>
+                <select id="sheetGridCount">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="4">4</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="sheetOrientation">Orientation</label>
+                <select id="sheetOrientation">
+                  <option value="auto">Auto (best fit)</option>
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label for="sheetMarginMm">Page margin (mm)</label>
+                <input type="number" id="sheetMarginMm" min="0" max="30" step="0.5" value="5" />
+              </div>
+              <div class="form-group flex-1">
+                <label for="sheetGapMm">Gap between cards (mm)</label>
+                <input type="number" id="sheetGapMm" min="0" max="30" step="0.5" value="5" />
+              </div>
+            </div>
+            <div class="batch-toggles">
+              <label class="checkbox-label toggle-row">
+                <span>Dashed cut lines</span>
+                <input type="checkbox" id="sheetCutLines" checked />
+              </label>
+              <label class="checkbox-label toggle-row">
+                <span>Background patterns</span>
+                <input type="checkbox" id="sheetBackgrounds" checked />
+              </label>
+            </div>
+
+            <div id="batchSummary" class="batch-summary"></div>
+            <div class="sheet-preview-frame" id="sheetPaperPreview">
+              <!-- One to-scale thumbnail per printed sheet -->
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="footer-start hint-text"
+            >In the browser's print dialog, set the scale to 100% (Actual size).</span
+          >
+          <button class="btn btn-secondary" id="cancelBatchBtn">Close</button>
+          <button class="btn btn-primary" id="printBatchSheetBtn">
+            <svg class="ico ico-sm" viewBox="0 0 24 24">
+              <path
+                d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"
+              ></path>
+            </svg>
+            <span id="batchPrintLabel">Print</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEW CARD -->
+    <div id="newCardModal" class="modal-backdrop hidden no-print">
+      <div
+        class="modal-dialog modal-sm"
+        role="alertdialog"
+        aria-labelledby="newCardTitle"
+        aria-describedby="newCardDesc"
+      >
+        <div class="modal-body" style="padding-top: 24px">
+          <div class="drop-icon" aria-hidden="true">
+            <svg class="ico" viewBox="0 0 24 24">
+              <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M12 12v6M9 15h6"></path>
+            </svg>
+          </div>
+          <div>
+            <h2 class="modal-title" id="newCardTitle" style="margin-bottom: 6px">Start a new card?</h2>
+            <p class="modal-desc" id="newCardDesc">
+              The open card is replaced by a blank Stream My Event card with starter rows. Save it to the library first
+              if you want to keep it.
+            </p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-close-btn sr-only" id="closeNewCardModalBtn" aria-label="Close">&times;</button>
+          <button class="btn btn-secondary" id="cancelNewCardModalBtn">Cancel</button>
+          <button class="btn btn-primary" id="confirmNewCardModalBtn">Start new card</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- WEBSHOP IMPORT -->
+    <div id="webImportModal" class="modal-backdrop hidden no-print">
+      <div class="modal-dialog modal-lg" role="dialog" aria-labelledby="webImportTitle">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="webImportTitle">Import from a webshop</h2>
+            <p class="modal-subtitle">Turns a product page's "In the box" list into card rows with photos</p>
+          </div>
+          <button class="modal-close-btn" id="closeWebImportModalBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="segmented" role="tablist" aria-label="Source">
+            <button class="seg-btn tab-btn active" id="importTabUrl" role="tab">Product URL</button>
+            <button class="seg-btn tab-btn" id="importTabRaw" role="tab">Paste text</button>
+            <button class="seg-btn tab-btn" id="importTabSample" role="tab">Examples</button>
+            <button class="seg-btn tab-btn" id="importTabRentman" role="tab">Rentman</button>
+          </div>
+
+          <div id="importPaneUrl" class="import-pane">
+            <div class="form-group">
+              <label for="webshopUrlInput">Product page URL</label>
+              <div class="form-row">
+                <input
+                  type="text"
+                  id="webshopUrlInput"
+                  class="mono-input"
+                  placeholder="https://www.thomann.de/…"
+                  value=""
+                />
+                <button class="btn btn-secondary" id="fetchWebshopUrlBtn" style="flex-shrink: 0">
+                  <span class="btn-spinner hidden" id="fetchSpinner">…</span>
+                  Fetch page
+                </button>
+              </div>
+              <span class="hint-text"
+                >Works with Thomann, B&amp;H, Bax Music, Astera, Sweetwater and most manufacturer pages.</span
+              >
+            </div>
+          </div>
+
+          <div id="importPaneRaw" class="import-pane hidden">
+            <div class="form-group">
+              <label for="rawTextProductTitle">Product name (optional)</label>
+              <input type="text" id="rawTextProductTitle" placeholder="e.g. Astera AX3 Lightdrop 8-way set" />
+            </div>
+            <div class="form-group" style="margin-top: 12px">
+              <label for="rawProductText">Paste the "In the box" or specs text</label>
+              <textarea
+                id="rawProductText"
+                rows="6"
+                placeholder="8x Astera AX3 Lightdrop
+1x Powercon mains cable 1.5m
+8x Diffusor lens 32 deg
+1x ARC1 IR remote"
+              ></textarea>
+            </div>
+            <button class="btn btn-secondary" id="parseRawTextBtn" style="margin-top: 12px">
+              Find items and quantities
+            </button>
+          </div>
+
+          <div id="importPaneSample" class="import-pane hidden">
+            <p class="hint-text" style="margin-bottom: 10px">Try the importer with a real product page:</p>
+            <div class="sample-grid">
+              <button class="btn btn-secondary sample-product-btn" data-sample="aputure-storm">
+                <strong>Aputure Storm 80c, 3-light kit</strong><small>aputure.com · lamps, fresnels, softboxes</small>
+              </button>
+              <button class="btn btn-secondary sample-product-btn" data-sample="astera">
+                <strong>Astera AX3 LightDrop set</strong><small>astera-led.com · 8 lights, lenses, hooks</small>
+              </button>
+              <button class="btn btn-secondary sample-product-btn" data-sample="thomann-mics">
+                <strong>Sennheiser EW-DX 835-S set</strong><small>thomann.de · receiver, 2 mics, antennas</small>
+              </button>
+              <button class="btn btn-secondary sample-product-btn" data-sample="bh-atem">
+                <strong>Blackmagic ATEM Mini Extreme ISO</strong><small>bhphotovideo.com · switcher, 12 V PSU</small>
+              </button>
+            </div>
+          </div>
+
+          <div id="importPaneRentman" class="import-pane hidden">
+            <div class="panel-box">
+              <div class="section-header-flex">
+                <strong>Rentman kits and cases</strong>
+                <span class="rentman-status-badge demo" id="webImportRentmanBadge">Demo mode</span>
+              </div>
+              <p class="hint-text">
+                Search your Rentman inventory by name or code and turn a kit into a card with photos and quantities.
+              </p>
+              <div>
+                <button type="button" class="btn btn-secondary btn-sm" id="openRentmanFromImportModalBtn">
+                  Open Rentman browser
+                </button>
+              </div>
+            </div>
+            <p class="hint-text" style="margin: 12px 0 8px">Quick import:</p>
+            <div class="sample-grid" id="rentmanQuickKitsList">
+              <!-- Populated with Rentman Kits -->
+            </div>
+          </div>
+
+          <div id="importResultsSection" class="import-results-box hidden">
+            <div class="import-results-head">
+              <span id="detectedItemsCountBadge" class="pill pill-ok">0 items found</span>
+              <div class="form-row" style="flex: 1 1 360px">
+                <div class="form-group flex-1">
+                  <label for="extractedTitle">Title</label>
+                  <input type="text" id="extractedTitle" value="" />
+                </div>
+                <div class="form-group flex-1">
+                  <label for="extractedSubtitle">Subtitle</label>
+                  <input type="text" id="extractedSubtitle" value="" />
+                </div>
+              </div>
+            </div>
+            <div class="import-table-wrap">
+              <table class="import-table" id="extractedItemsTable">
+                <thead>
+                  <tr>
+                    <th style="width: 36px">
+                      <input type="checkbox" id="selectAllExtracted" checked aria-label="Select all" />
+                    </th>
+                    <th style="width: 64px">Photo</th>
+                    <th style="width: 70px">Qty</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody id="extractedItemsTableBody">
+                  <!-- Populated items -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="cancelWebImportBtn">Cancel</button>
+          <button class="btn btn-primary" id="applyWebImportBtn" disabled>Create card from these items</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHANGE PHOTO -->
+    <div id="gearPickerModal" class="modal-backdrop hidden no-print">
+      <div class="modal-dialog modal-lg" role="dialog" aria-labelledby="gearPickerTitle">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="gearPickerTitle">Change photo</h2>
+            <p class="modal-subtitle">Drop your own photo, or pick one from the gear database</p>
+          </div>
+          <button class="modal-close-btn" id="closeGearPickerModalBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div
+            id="photoDropZone"
+            class="photo-drop-zone"
+            tabindex="0"
+            role="button"
+            aria-label="Add your own photo: drag it here, paste with Ctrl+V or click to browse"
+          >
+            <span class="drop-icon" aria-hidden="true">
+              <svg class="ico" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"></path>
+              </svg>
+            </span>
+            <span class="photo-drop-text">
+              <strong>Drop a photo here or press <span class="kbd">Ctrl V</span> to paste</strong>
+              <small>Or click to browse. Large photos are scaled to 1000 px.</small>
+            </span>
+            <input type="file" id="photoDropFileInput" accept="image/*" hidden />
+          </div>
+
+          <div class="divider-label photo-db-heading">Or pick from the gear database</div>
+          <div class="form-row" style="flex-wrap: wrap">
+            <label class="sr-only" for="modalGearSearchInput">Search gear</label>
+            <input
+              type="search"
+              id="modalGearSearchInput"
+              placeholder="Search name, code or alias"
+              style="flex: 2 1 240px"
+            />
+            <label class="sr-only" for="modalGearCategoryFilter">Category</label>
+            <select id="modalGearCategoryFilter" style="flex: 1 1 160px">
+              <option value="all">All categories</option>
+              <option value="cables">Cables</option>
+              <option value="lighting">Lighting and optics</option>
+              <option value="rigging">Rigging and clamps</option>
+              <option value="audio">Audio</option>
+              <option value="video">Video</option>
+              <option value="power">Power</option>
+              <option value="accessories">Accessories</option>
+            </select>
+            <button
+              class="btn btn-secondary"
+              id="modalAddNewGearBtn"
+              style="flex-shrink: 0"
+              title="Add a new item with photo to the gear database"
+            >
+              <svg class="ico ico-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+              Add to database
+            </button>
+          </div>
+
+          <div id="modalGearGrid" class="photo-picker-grid">
+            <!-- Dynamically populated gear items -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADD / EDIT GEAR ITEM -->
+    <div id="addGearModal" class="modal-backdrop hidden no-print">
+      <div class="modal-dialog modal-md" role="dialog" aria-labelledby="addGearModalTitle">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="addGearModalTitle">Add gear to the database</h2>
+            <p class="modal-subtitle">Changes apply to every card that uses this item</p>
+          </div>
+          <button class="modal-close-btn" id="closeAddGearModalBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="newGearName">Name</label>
+            <input type="text" id="newGearName" placeholder="e.g. Schuko to IEC C13 power cable, 1.5 m" required />
+          </div>
+          <div class="form-group">
+            <label for="newGearCategory">Category</label>
+            <select id="newGearCategory">
+              <option value="cables">Cables</option>
+              <option value="lighting">Lighting and optics</option>
+              <option value="rigging">Rigging and clamps</option>
+              <option value="audio">Audio</option>
+              <option value="video">Video</option>
+              <option value="power">Power</option>
+              <option value="accessories">Accessories</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="newGearAliases">Search words (comma separated)</label>
+            <input type="text" id="newGearAliases" placeholder="e.g. C13, kettle cord, power cord" />
+            <span class="hint-text">Card rows containing one of these words get this photo automatically.</span>
+          </div>
+          <div class="form-group">
+            <span class="field-label">Photo</span>
+            <div class="gear-photo-row">
+              <div id="newGearPhotoPreview" class="gear-photo-preview">
+                <span>No photo</span>
+              </div>
+              <div style="flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+                <div
+                  id="gearPhotoDropZone"
+                  class="photo-drop-zone photo-drop-zone-compact"
+                  tabindex="0"
+                  role="button"
+                  aria-label="Equipment photo: drag it here, paste with Ctrl+V or click to browse"
+                >
+                  <span class="photo-drop-text">
+                    <strong>Drop a photo or press Ctrl V</strong>
+                    <small>or click to browse</small>
+                  </span>
+                  <input type="file" id="newGearFileInput" accept="image/*" hidden />
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  id="editCurrentGearPhotoBtn"
+                  title="Scale, crop, move and rotate the photo"
+                >
+                  <svg class="ico ico-xs" viewBox="0 0 24 24">
+                    <path d="M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2"></path>
+                  </svg>
+                  Crop and rotate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <div class="footer-start">
+            <button class="btn btn-danger hidden" id="deleteGearBtn">
+              <svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"></path></svg>
+              Delete
+            </button>
+          </div>
+          <button class="btn btn-secondary" id="cancelAddGearBtn">Cancel</button>
+          <button class="btn btn-primary" id="saveNewGearBtn">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CROP AND ROTATE -->
+    <div id="photoEditorModal" class="modal-backdrop hidden no-print">
+      <div class="modal-dialog modal-lg" role="dialog" aria-labelledby="photoEditorModalTitle" style="max-width: 820px">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="photoEditorModalTitle">Crop and rotate</h2>
+            <p class="modal-subtitle">Drag the photo to move it, scroll to zoom</p>
+          </div>
+          <button class="modal-close-btn" id="closePhotoEditorModalBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body photo-editor-layout">
+          <div class="photo-editor-stage">
+            <div class="photo-editor-viewport-wrap">
+              <canvas id="photoEditorCanvas" width="280" height="280"></canvas>
+              <div class="crop-grid-overlay" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <div class="photo-editor-controls">
+            <section class="control-section">
+              <div class="range-label">
+                <h3 class="section-title">Zoom</h3>
+                <span class="section-value" id="photoScaleValueDisplay">100%</span>
+              </div>
+              <div class="range-row">
+                <button
+                  class="icon-btn icon-btn-outline"
+                  id="photoZoomOutBtn"
+                  title="Zoom out"
+                  aria-label="Zoom out"
+                  style="width: 36px; height: 36px"
+                >
+                  <svg class="ico ico-sm" viewBox="0 0 24 24" style="stroke-width: 2"><path d="M5 12h14"></path></svg>
+                </button>
+                <label class="sr-only" for="photoScaleSlider">Zoom</label>
+                <input type="range" id="photoScaleSlider" min="20" max="400" value="100" step="2" />
+                <button
+                  class="icon-btn icon-btn-outline"
+                  id="photoZoomInBtn"
+                  title="Zoom in"
+                  aria-label="Zoom in"
+                  style="width: 36px; height: 36px"
+                >
+                  <svg class="ico ico-sm" viewBox="0 0 24 24" style="stroke-width: 2">
+                    <path d="M12 5v14M5 12h14"></path>
+                  </svg>
+                </button>
+              </div>
+            </section>
+            <section class="control-section">
+              <div class="range-label">
+                <h3 class="section-title">Rotate</h3>
+                <span class="section-value" id="photoRotateValueDisplay">0°</span>
+              </div>
+              <label class="sr-only" for="photoRotateSlider">Rotation</label>
+              <input type="range" id="photoRotateSlider" min="-180" max="180" value="0" step="1" />
+              <div class="editor-grid-2">
+                <button class="btn btn-secondary" id="rotateLeft90Btn" title="Rotate 90° counter-clockwise">
+                  Rotate −90°
+                </button>
+                <button class="btn btn-secondary" id="rotateRight90Btn" title="Rotate 90° clockwise">
+                  Rotate +90°
+                </button>
+                <button class="btn btn-secondary" id="flipHBtn">Flip horizontal</button>
+                <button class="btn btn-secondary" id="flipVBtn">Flip vertical</button>
+                <button class="btn btn-secondary" id="fitPhotoBtn">Fit</button>
+                <button class="btn btn-secondary" id="resetPhotoAdjustBtn">Reset</button>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="cancelPhotoEditorBtn">Cancel</button>
+          <button class="btn btn-primary" id="applyPhotoEditorBtn">Apply photo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RENTMAN -->
+    <div id="rentmanModal" class="modal-backdrop hidden no-print">
+      <div class="modal-dialog modal-xl" role="dialog" aria-labelledby="rentmanTitle">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title-row">
+              <h2 class="modal-title" id="rentmanTitle">Import from Rentman</h2>
+              <span class="pill">
+                <svg class="ico ico-xs" viewBox="0 0 24 24">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+                Read-only · never changes Rentman
+              </span>
+            </div>
+            <p class="modal-subtitle">
+              Pull equipment photos into the gear database, or create a card from a kit or case.
+            </p>
+          </div>
+          <button class="modal-close-btn" id="closeRentmanModalBtn" aria-label="Close">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="rentman-connect-bar">
+            <div class="section-header-flex">
+              <div class="modal-title-row">
+                <span id="rentmanStatusBadge" class="rentman-status-badge demo">Demo mode (sample catalogue)</span>
+                <span
+                  id="rentmanCatalogLoadingMsg"
+                  class="hint-text"
+                  style="display: none; align-items: center; gap: 4px"
+                ></span>
+              </div>
+              <div class="modal-title-row">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  id="rentmanRefreshCatalogBtn"
+                  title="Fetch the inventory from Rentman again"
+                >
+                  Refresh
+                </button>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="rentmanUseDemoCb" checked />
+                  <span>Use sample data</span>
+                </label>
+              </div>
+            </div>
+
+            <div id="rentmanTokenRow" class="form-group hidden">
+              <label for="rentmanTokenInput"
+                >API token
+                <span style="font-weight: 400"
+                  >(Rentman › Configuration › Integrations · stored on this computer only)</span
+                ></label
+              >
+              <div class="form-row">
+                <input
+                  type="password"
+                  id="rentmanTokenInput"
+                  class="mono-input"
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…"
+                />
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  id="toggleRentmanTokenVisBtn"
+                  title="Show or hide the token"
+                  aria-label="Show or hide the token"
+                  style="flex-shrink: 0; width: 44px; padding: 0"
+                >
+                  <svg class="ico ico-sm" viewBox="0 0 24 24">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"></path>
+                  </svg>
+                </button>
+                <button type="button" class="btn btn-primary" id="testRentmanConnBtn" style="flex-shrink: 0">
+                  Test connection
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row" style="flex-wrap: wrap">
+            <label class="sr-only" for="rentmanSearchInput">Search Rentman</label>
+            <input
+              type="search"
+              id="rentmanSearchInput"
+              placeholder="Search by name or item code (e.g. FR7, Astera, FX6)"
+              style="flex: 2 1 300px"
+            />
+            <label class="sr-only" for="rentmanTypeFilter">Type</label>
+            <select id="rentmanTypeFilter" style="flex: 1 1 160px">
+              <option value="all" selected>Kits and items</option>
+              <option value="kits">Kits and cases</option>
+              <option value="items">Single items</option>
+            </select>
+            <label class="sr-only" for="rentmanCategoryFilter">Category</label>
+            <select id="rentmanCategoryFilter" style="flex: 1 1 140px">
+              <option value="all">All categories</option>
+              <option value="lighting">Lighting</option>
+              <option value="audio">Audio</option>
+              <option value="video">Video</option>
+              <option value="cables">Cables</option>
+              <option value="rigging">Rigging</option>
+              <option value="power">Power</option>
+            </select>
+          </div>
+
+          <div class="rentman-options">
+            <div class="modal-title-row" style="gap: 16px">
+              <label class="checkbox-label" title="Adds the Rentman item code, like [LIG-AX3], to each card row">
+                <input type="checkbox" id="rentmanIncludeCodeInDesc" checked />
+                <span>Put the item code in each row</span>
+              </label>
+              <label class="checkbox-label" title="Uses the Rentman kit code as the case tag in the card header">
+                <input type="checkbox" id="rentmanSetCodeAsTag" checked />
+                <span>Use the kit code as case tag</span>
+              </label>
+            </div>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              id="rentmanBatchSyncBtn"
+              title="Add every item shown to the gear database"
+            >
+              Add all shown to gear database
+            </button>
+          </div>
+
+          <div id="rentmanEquipmentList" class="rentman-equipment-grid">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <span class="footer-start hint-text" id="rentmanResultSummary">Showing Rentman equipment</span>
+          <button class="btn btn-secondary" id="closeRentmanModalFooterBtn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SHARED DRIVE -->
+    <div id="storageSettingsModal" class="modal-backdrop hidden no-print">
+      <div class="modal-dialog modal-md" role="dialog" aria-labelledby="storageTitle" style="max-width: 640px">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title" id="storageTitle">Shared Drive</h2>
+            <p class="modal-subtitle">One team folder for the gear database, saved cards and exports</p>
+          </div>
+          <button class="modal-close-btn" id="closeStorageModalBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label class="checkbox-label toggle-row">
+            <span>Sync with a Shared Drive folder<small>Off: everything stays on this computer only</small></span>
+            <input type="checkbox" id="enableStorageDrive" checked />
+          </label>
+
+          <div class="form-group">
+            <label for="storageDrivePathInput">Folder</label>
+            <input
+              type="text"
+              id="storageDrivePathInput"
+              class="mono-input"
+              placeholder="Paste your Shared Drive folder path"
+              value=""
+            />
+          </div>
+
+          <div id="storageStatusBox" class="drive-status-box">
+            <div class="drive-status-head">
+              <span>Folder layout</span>
+              <span id="storageStatusBadge" class="pill">Checking…</span>
+            </div>
+            <div class="drive-tree">
+              <div><strong id="storageBaseFolderDisplay">[Shared Drive folder]</strong></div>
+              <div class="indent">gear-database/ <span class="note">· gear list and photos</span></div>
+              <div class="indent">cases/ <span class="note">· saved cards</span></div>
+              <div class="indent">branding/ <span class="note">· logos</span></div>
+              <div class="indent">exports/ <span class="note">· PNG cards</span></div>
+            </div>
+          </div>
+
+          <label class="checkbox-label toggle-row">
+            <span
+              >Sync automatically<small
+                >Save cards and gear to the drive as you work, load the latest on start</small
+              ></span
+            >
+            <input type="checkbox" id="storageAutoSync" checked />
+          </label>
+
+          <div class="form-row">
+            <button
+              type="button"
+              id="pushToDriveBtn"
+              class="btn btn-secondary flex-1"
+              title="Upload the gear database and saved cards to the Shared Drive"
+            >
+              <svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+              Push to drive
+            </button>
+            <button
+              type="button"
+              id="pullFromDriveBtn"
+              class="btn btn-secondary flex-1"
+              title="Load the gear database and saved cards from the Shared Drive"
+            >
+              <svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"></path></svg>
+              Pull from drive
+            </button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="closeStorageModalFooterBtn">Close</button>
+          <button class="btn btn-primary" id="saveStorageConfigBtn">Save and connect</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MULTI SHEET PRINT CONTAINER (ONLY VISIBLE ON PRINT IN MULTI-MODE) -->
+    <div id="printSheetContainer" class="print-sheet-only">
+      <!-- Populated at print time if multi-sheet mode is triggered -->
+    </div>
+
+    <!-- Scripts (Local Bundles for 100% Offline & Speed) -->
+    <script src="vendor/qrcode.min.js"></script>
+    <script src="vendor/html2canvas.min.js"></script>
+    <script src="app.js?v=0.7.0"></script>
+  </body>
+</html>

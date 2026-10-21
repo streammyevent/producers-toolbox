@@ -1,0 +1,52 @@
+# Also APP_ID in src/main/main.js. Changing it later makes Windows treat the app as a different program.
+appId: com.streammyevent.producers-toolbox
+# The userData folder name (src/main/main.js, build/installer.nsh): never rename it, or users lose their data.
+productName: Producers Toolbox
+copyright: Copyright © 2026 Stream My Event
+directories:
+  output: dist
+  buildResources: build
+files:
+  - src/**/*
+  - package.json
+extraResources:
+  - from: ../../tools
+    to: tools
+    filter: ["*/tool.json", "*/api.js", "*/lib/**", "*/web/**"]
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  resetAdHocDarwinSignature: true
+publish:
+  provider: github
+  owner: streammyevent
+  repo: producers-toolbox
+win:
+  target: [{ target: nsis, arch: [x64] }]
+  icon: build/icon.ico
+nsis:
+  # No spaces: the name must equal the GitHub release asset name that latest.yml points at.
+  artifactName: Producers-Toolbox-Setup-${version}.${ext}
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Producers Toolbox
+  uninstallDisplayName: Producers Toolbox
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+mac:
+  # electron-updater downloads the zip; the dmg is for first installs.
+  target:
+    - { target: dmg, arch: [x64, arm64] }
+    - { target: zip, arch: [x64, arm64] }
+  artifactName: Producers-Toolbox-${version}-${arch}-mac.${ext}
+  category: public.app-category.productivity
+  icon: build/icon.png

@@ -1,0 +1,18 @@
+pnpm-lock.yaml
+**/dist
+**/out
+**/vendor
+playwright-report
+test-results
+.turbo
+CHANGELOG.md
+
+# CRLF is pinned by .gitattributes for these; Prettier defaults to LF
+*.bat
+*.cmd
+*.ps1
+*.vbs
+apps/desktop/build/
+
+# Hand-written docs stay as written
+*.md

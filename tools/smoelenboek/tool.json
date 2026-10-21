@@ -1,0 +1,9 @@
+{
+  "id": "smoelenboek",
+  "name": "Smoelenboek",
+  "version": "1.0.0",
+  "icon": "web/assets/icon.png",
+  "entry": "web/index.html",
+  "window": { "width": 1400, "height": 900 },
+  "permissions": ["storage", "file-export", "net-fetch"]
+}
