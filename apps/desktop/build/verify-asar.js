@@ -27,7 +27,8 @@ exports.default = async ({ appOutDir, packager, electronPlatformName }) => {
   }
 
   // Every runtime dependency, resolved the way Node does inside the asar
-  const pkg = (dir) => JSON.parse(asar.extractFile(archive, path.posix.join(dir, "package.json")).toString());
+  // extractFile splits on path.sep, so the path needs the platform's separator
+  const pkg = (dir) => JSON.parse(asar.extractFile(archive, path.join(dir, "package.json")).toString());
   const resolve = (from, dep) => {
     for (let dir = from; ; dir = path.posix.dirname(dir)) {
       if (path.posix.basename(dir) !== "node_modules") {
