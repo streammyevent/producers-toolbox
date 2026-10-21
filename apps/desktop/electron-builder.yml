@@ -47,10 +47,11 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
 mac:
-  # electron-updater downloads the zip; the dmg is for first installs.
+  # Apple Silicon only. electron-updater downloads the zip (Squirrel.Mac cannot update from a dmg); the dmg is for
+  # first installs.
   target:
-    - { target: dmg, arch: [x64, arm64] }
-    - { target: zip, arch: [x64, arm64] }
+    - { target: dmg, arch: [arm64] }
+    - { target: zip, arch: [arm64] }
   artifactName: Producers-Toolbox-${version}-${arch}-mac.${ext}
   category: public.app-category.productivity
   icon: build/icon.png
