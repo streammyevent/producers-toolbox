@@ -57,7 +57,22 @@ Scopes are the package names: `desktop`, `smoelenboek`, `content-card-studio`, `
 
 [release-please](https://github.com/googleapis/release-please) keeps a release PR open that bumps the version and
 writes `CHANGELOG.md` from those commits. Merging it builds and signs the installers and attaches them to a draft
-GitHub Release. Publishing that draft is the release: installed apps pick it up automatically.
+GitHub Release (`.github/workflows/release.yml`). Install the draft's files on Windows and macOS and check them, then
+publish the draft: installed apps pick it up automatically. A `fix(deps):` title makes a dependency update ship;
+`chore(deps):` does not.
+
+The release workflow needs these settings on the repository:
+
+| Kind | Name | What |
+|---|---|---|
+| Secret | `RELEASE_APP_CLIENT_ID`, `RELEASE_APP_PRIVATE_KEY` | GitHub App that opens the release PRs |
+| Environment `release` secret | `MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD` | Apple Developer ID Application certificate (.p12, base64) |
+| Environment `release` secret | `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | App Store Connect API key, for notarization |
+| Environment `release` secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | Azure app that may sign with Artifact Signing |
+| Variable | `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE` | Artifact Signing account and certificate profile |
+| Variable | `WINDOWS_PUBLISHER_NAME` | Exact subject name on the signing certificate; updates are checked against it |
+
+Users of the separate apps that the Toolbox replaces move their data with [docs/MIGRATION.md](docs/MIGRATION.md).
 
 ## Security
 

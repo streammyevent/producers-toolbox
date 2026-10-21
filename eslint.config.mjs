@@ -46,7 +46,7 @@ export default defineConfig([
   // ---- Node: the shell's scripts and tests, tool main-process code, repo scripts ----
   {
     files: [
-      "apps/desktop/{scripts,tests}/**/*.js",
+      "apps/desktop/{build,scripts,tests}/**/*.js",
       "tools/*/api.js",
       "tools/*/lib/**/*.js",
       "tools/*/tests/**/*.js",
