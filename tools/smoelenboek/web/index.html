@@ -7,7 +7,7 @@
          the external services the app calls (Google Custom Search, Wikipedia/Wikimedia). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src * 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://*.wikipedia.org https://*.wikimedia.org; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src * 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://*.wikipedia.org https://*.wikimedia.org; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
     />
     <title>Speaker Photo Directory - Mic & Profile Manager</title>
     <meta
@@ -22,12 +22,7 @@
     <script src="js/desktop-bridge.js?v=1"></script>
 
     <!-- Typography: Geist for the app UI. Outfit is kept only for the printed A4 sheet, so print output is unchanged. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Outfit:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="stylesheet" href="css/fonts.css?v=1" />
 
     <link rel="icon" type="image/png" href="assets/icon.png" />
     <link rel="stylesheet" href="css/style.css?v=639252399619522927" />

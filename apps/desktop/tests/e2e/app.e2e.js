@@ -179,6 +179,27 @@ test("every tool opens without script errors, under a strict script policy", asy
   }
 });
 
+test("Smoelenboek and Content Card Studio load their bundled fonts (no font CDN)", async () => {
+  const { app, launcher } = await launch();
+  try {
+    const loads = (page, families) =>
+      page.evaluate(
+        (list) => Promise.all(list.map((f) => document.fonts.load(`16px "${f}"`).then((faces) => [f, faces.length]))),
+        families,
+      );
+    const smoelenboek = await openTool(app, launcher, "Smoelenboek");
+    for (const [family, faces] of await loads(smoelenboek, ["Geist", "Geist Mono", "Outfit"])) {
+      assert.ok(faces > 0, `Smoelenboek: ${family}`);
+    }
+    const cards = await openTool(app, launcher, "Content Card Studio");
+    for (const [family, faces] of await loads(cards, ["Geist", "Geist Mono", "Inter", "JetBrains Mono"])) {
+      assert.ok(faces > 0, `Content Card Studio: ${family}`);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("Quote Pricer: restoring a backup works and survives a restart", async () => {
   let { app, launcher, dataDir } = await launch();
   try {
@@ -227,6 +248,7 @@ test("Content Card Studio: the shared-drive folder is chosen in a dialog; export
   try {
     const page = await openTool(app, launcher, "Content Card Studio");
     await stubDialogs(app, { folder: drive });
+    await page.waitForFunction(() => typeof window.openStorageModal === "function");
     await page.evaluate(() => window.openStorageModal());
     await page.locator("#chooseStorageFolderBtn").click();
     await page.waitForFunction(() => document.getElementById("storageDrivePathInput").value !== "");
