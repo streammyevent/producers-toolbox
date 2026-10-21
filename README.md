@@ -56,10 +56,9 @@ Scopes are the package names: `desktop`, `smoelenboek`, `content-card-studio`, `
 `deps`. Use `!` (`feat!:`) for a breaking change.
 
 [release-please](https://github.com/googleapis/release-please) keeps a release PR open that bumps the version and
-writes `CHANGELOG.md` from those commits. Merging it builds and signs the installers and attaches them to a draft
-GitHub Release (`.github/workflows/release.yml`). Install the draft's files on Windows and macOS and check them, then
-publish the draft: installed apps pick it up automatically. A `fix(deps):` title makes a dependency update ship;
-`chore(deps):` does not.
+writes `CHANGELOG.md` from those commits. Merging it starts `.github/workflows/release.yml`, which waits for approval
+of the `release` environment, then builds and signs the installers and publishes the GitHub Release with them.
+Installed apps pick it up automatically. A `fix(deps):` title makes a dependency update ship; `chore(deps):` does not.
 
 The release workflow needs these settings on the repository:
 
