@@ -65,7 +65,8 @@ The release workflow needs these settings on the repository:
 
 | Kind | Name | What |
 |---|---|---|
-| Secret | `RELEASE_APP_CLIENT_ID`, `RELEASE_APP_PRIVATE_KEY` | GitHub App that opens the release PRs |
+| Variable | `RELEASE_APP_CLIENT_ID` | GitHub App that opens the release PRs; releases are skipped until it is set |
+| Secret | `RELEASE_APP_PRIVATE_KEY` | That App's private key |
 | Environment `release` secret | `MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD` | Apple Developer ID Application certificate (.p12, base64) |
 | Environment `release` secret | `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | App Store Connect API key, for notarization |
 | Environment `release` secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | Azure app that may sign with Artifact Signing |

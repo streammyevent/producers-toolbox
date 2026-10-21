@@ -15,6 +15,8 @@ concurrency:
 
 jobs:
   release-please:
+    # Skipped until the release GitHub App is set up (see README, "Commits and releases")
+    if: vars.RELEASE_APP_CLIENT_ID != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -27,7 +29,7 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
         with:
-          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
