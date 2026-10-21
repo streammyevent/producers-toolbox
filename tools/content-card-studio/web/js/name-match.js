@@ -80,6 +80,9 @@
         var cand = normalizeName(candidates[c]);
         if (cand.length < MIN_LENGTH) continue;
         if (cand === target) return item;
+        // Names whose lengths differ by more than 10% can never reach 90%: skip the edit distance
+        if (Math.abs(cand.length - target.length) > (1 - STRICT_THRESHOLD) * Math.max(cand.length, target.length))
+          continue;
         if (!sameNumbers(cand, target)) continue;
         var score = 1 - levenshtein(cand, target) / Math.max(cand.length, target.length);
         if (score > bestScore) {

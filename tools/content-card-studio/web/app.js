@@ -5670,6 +5670,16 @@ async function loadFullRentmanCatalog(forceRefresh = false) {
   return rentmanCachedEquipment;
 }
 
+// A catalog cached by an older version has guessed icons stored as the item's image. Keep only a real Rentman photo (or
+// a sample item's own icon) and look everything else up again with the strict name match. Runs once per item.
+function recheckCachedRentmanImage(item) {
+  if (!item || item.imageChecked) return;
+  item.imageChecked = true;
+  const isRentmanPhoto = typeof item.image === "string" && item.image.startsWith("/api/rentman-image");
+  if (isRentmanPhoto || item.fallbackIcon) return;
+  item.image = resolveRentmanImage(item.name || "", "");
+}
+
 async function searchRentman(query = "", category = "all", typeFilter = "all") {
   // If catalog is not loaded yet and we have a token, start loading
   if (!rentmanConfig.useDemo && rentmanConfig.token && !rentmanCatalogLoaded && !rentmanCatalogLoading) {
@@ -5720,6 +5730,8 @@ async function searchRentman(query = "", category = "all", typeFilter = "all") {
     if (itemCode.includes(q)) return true;
     return false;
   });
+
+  results.forEach(recheckCachedRentmanImage);
 
   // Fast direct server query fallback for exact codes / names:
   // If results are 0 or catalog is still loading, query Rentman directly by code and name
