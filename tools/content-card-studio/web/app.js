@@ -67,221 +67,31 @@ function escapeHtml(str) {
 }
 
 // Card and gear images come from the gear database, Rentman, webshops, imports and the shared drive, so they are
-// untrusted. Inline SVG markup is only inserted for the app's own AV_ICONS; any other image becomes an <img> URL
-// (an SVG there cannot run script).
-let ownIcons = null;
-function isOwnIcon(src) {
-  ownIcons = ownIcons || new Set(Object.values(AV_ICONS));
-  return ownIcons.has(src);
+// untrusted. Inline SVG markup is never inserted: older versions stored built-in stock icons that way, and those are
+// not photos, so they count as "no image". Uploads are never SVG markup. Any other image becomes an <img> URL (an SVG
+// there cannot run script).
+function isFillerIcon(src) {
+  return typeof src === "string" && /^\s*(<|&lt;)svg[\s>]/i.test(src);
 }
+
+const NO_IMAGE_HTML = '<div class="no-image-placeholder">No image</div>';
 
 /** A URL that is safe in an <img src>, or "" when the value is not an image. */
 function safeImageSrc(src) {
   if (typeof src !== "string") return "";
-  let s = src.trim();
-  if (/^&lt;svg[\s>]/i.test(s)) {
-    s = s
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, "&");
-  }
-  if (/^<svg[\s>]/i.test(s)) return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s);
+  const s = src.trim();
   if (/^(https?:|blob:)/i.test(s)) return s;
   if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,]/i.test(s)) return s;
   if (/^(\/api\/rentman-image\?|assets\/)/.test(s)) return s;
   return "";
 }
 
-/** HTML for an image: the app's own icon as inline SVG, anything else as an escaped <img>. */
+/** HTML for an image as an escaped <img>, or "" when there is no usable image. */
 function imageHtml(src, attrs = 'alt=""') {
-  if (isOwnIcon(src)) return src;
+  if (isFillerIcon(src)) return "";
   const url = safeImageSrc(src);
   return url ? `<img src="${escapeHtml(url)}" ${attrs}>` : "";
 }
-
-// --- BUILT-IN AV EQUIPMENT SVG ICONS / ILLUSTRATIONS ---
-const AV_ICONS = {
-  asteraAx3: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="50" cy="45" rx="30" ry="24" fill="#222" stroke="#111" stroke-width="4"/>
-    <circle cx="50" cy="45" r="16" fill="#444" stroke="#ddd" stroke-width="2"/>
-    <circle cx="50" cy="45" r="7" fill="#fff"/>
-    <path d="M22 45 L18 78 L32 86 L40 86" stroke="#111" stroke-width="5" fill="none"/>
-    <path d="M78 45 L82 78 L68 86 L60 86" stroke="#111" stroke-width="5" fill="none"/>
-    <path d="M30 86 L70 86" stroke="#111" stroke-width="6"/>
-    <circle cx="20" cy="45" r="4" fill="#000"/>
-    <circle cx="80" cy="45" r="4" fill="#000"/>
-  </svg>`,
-
-  schukoCable: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="10" y="38" width="22" height="24" rx="4" fill="#222" stroke="#111" stroke-width="3"/>
-    <line x1="4" y1="44" x2="10" y2="44" stroke="#888" stroke-width="4"/>
-    <line x1="4" y1="56" x2="10" y2="56" stroke="#888" stroke-width="4"/>
-    <path d="M32 50 C 45 20, 85 20, 85 45 C 85 75, 50 78, 65 52 L 78 52" stroke="#111" stroke-width="5" fill="none"/>
-    <rect x="76" y="44" width="18" height="16" rx="3" fill="#222" stroke="#111" stroke-width="3"/>
-  </svg>`,
-
-  diffusor32: `<svg viewBox="0 0 100 100" fill="none" stroke="#666" stroke-width="2">
-    <circle cx="50" cy="50" r="38" fill="#cbd5e1" stroke="#475569" stroke-width="3"/>
-    <circle cx="30" cy="32" r="6" fill="#ffffff" stroke="#334155" stroke-width="2"/>
-    <circle cx="70" cy="32" r="6" fill="#ffffff" stroke="#334155" stroke-width="2"/>
-    <circle cx="30" cy="68" r="6" fill="#ffffff" stroke="#334155" stroke-width="2"/>
-    <circle cx="70" cy="68" r="6" fill="#ffffff" stroke="#334155" stroke-width="2"/>
-  </svg>`,
-
-  diffusor120: `<svg viewBox="0 0 100 100" fill="none" stroke="#666" stroke-width="2">
-    <circle cx="50" cy="50" r="38" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
-    <circle cx="50" cy="22" r="5" fill="#ffffff" stroke="#1e293b" stroke-width="2"/>
-    <circle cx="26" cy="64" r="5" fill="#ffffff" stroke="#1e293b" stroke-width="2"/>
-    <circle cx="74" cy="64" r="5" fill="#ffffff" stroke="#1e293b" stroke-width="2"/>
-    <circle cx="50" cy="50" r="12" fill="#64748b" stroke="#1e293b" stroke-width="1.5"/>
-  </svg>`,
-
-  diffusorDome220: `<svg viewBox="0 0 100 100" fill="none" stroke="#475569" stroke-width="3">
-    <path d="M 12 75 A 38 38 0 0 1 88 75 Z" fill="#cbd5e1" stroke="#334155" stroke-width="4"/>
-    <path d="M 22 75 A 28 28 0 0 1 78 75 Z" fill="#e2e8f0" opacity="0.6"/>
-  </svg>`,
-
-  eyeboltHook: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="50" cy="35" r="22" fill="#cbd5e1" stroke="#111" stroke-width="6"/>
-    <circle cx="50" cy="35" r="10" fill="#ffffff" stroke="#111" stroke-width="4"/>
-    <rect x="42" y="58" width="16" height="8" rx="2" fill="#475569" stroke="#111" stroke-width="3"/>
-    <rect x="45" y="66" width="10" height="20" fill="#94a3b8" stroke="#111" stroke-width="3"/>
-    <line x1="45" y1="71" x2="55" y2="71" stroke="#111" stroke-width="2"/>
-    <line x1="45" y1="76" x2="55" y2="76" stroke="#111" stroke-width="2"/>
-    <line x1="45" y1="81" x2="55" y2="81" stroke="#111" stroke-width="2"/>
-  </svg>`,
-
-  rubberPlug: `<svg viewBox="0 0 100 100" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 25 35 L 75 35 L 70 48 L 58 48 L 58 75 L 42 75 L 42 48 L 30 48 Z" fill="#1e293b" stroke="#000" stroke-width="4"/>
-    <ellipse cx="50" cy="35" rx="25" ry="6" fill="#334155" stroke="#000" stroke-width="3"/>
-  </svg>`,
-
-  remoteControl: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="30" y="10" width="40" height="80" rx="6" fill="#0f172a" stroke="#000" stroke-width="4"/>
-    <circle cx="42" cy="24" r="4" fill="#ef4444"/>
-    <circle cx="58" cy="24" r="4" fill="#3b82f6"/>
-    <circle cx="42" cy="38" r="4" fill="#22c55e"/>
-    <circle cx="58" cy="38" r="4" fill="#eab308"/>
-    <rect x="38" y="52" width="24" height="26" rx="3" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
-  </svg>`,
-
-  sdiCable: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 28 66 C 18 42, 45 20, 65 30 C 85 40, 85 70, 60 78 C 40 85, 25 75, 25 60 C 25 45, 50 42, 60 50 L 70 50" stroke="#0f172a" stroke-width="6" fill="none"/>
-    <rect x="68" y="42" width="14" height="16" rx="2" fill="#475569" stroke="#0f172a" stroke-width="3"/>
-    <rect x="76" y="38" width="10" height="24" rx="2" fill="#94a3b8" stroke="#0f172a" stroke-width="2.5"/>
-    <line x1="81" y1="41" x2="81" y2="59" stroke="#334155" stroke-width="2"/>
-    <rect x="86" y="46" width="7" height="8" rx="1" fill="#f59e0b" stroke="#0f172a" stroke-width="2"/>
-    <circle cx="91" cy="50" r="1.5" fill="#fff"/>
-  </svg>`,
-
-  hdmiCable: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 25 60 C 25 28, 75 28, 75 52 L 75 62" stroke="#0f172a" stroke-width="6" fill="none"/>
-    <rect x="15" y="45" width="22" height="20" rx="3" fill="#1e293b" stroke="#0f172a" stroke-width="3"/>
-    <polygon points="10,49 15,48 15,62 10,61" fill="#f59e0b" stroke="#0f172a" stroke-width="2"/>
-    <rect x="6" y="50" width="4" height="10" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
-  </svg>`,
-
-  etherconCable: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 25 55 C 25 25, 75 25, 75 50" stroke="#0284c7" stroke-width="6" fill="none"/>
-    <rect x="12" y="44" width="24" height="22" rx="3" fill="#64748b" stroke="#0f172a" stroke-width="3"/>
-    <rect x="20" y="39" width="8" height="6" rx="1" fill="#0284c7" stroke="#0f172a" stroke-width="2"/>
-    <rect x="65" y="44" width="24" height="22" rx="3" fill="#64748b" stroke="#0f172a" stroke-width="3"/>
-  </svg>`,
-
-  wirelessMic: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round">
-    <ellipse cx="50" cy="26" rx="16" ry="18" fill="#475569" stroke="#111" stroke-width="4"/>
-    <path d="M 40 44 L 43 85 L 57 85 L 60 44 Z" fill="#1e293b" stroke="#111" stroke-width="4"/>
-    <line x1="38" y1="26" x2="62" y2="26" stroke="#94a3b8" stroke-width="2"/>
-    <line x1="50" y1="12" x2="50" y2="40" stroke="#94a3b8" stroke-width="2"/>
-  </svg>`,
-
-  xlrCable: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round">
-    <circle cx="50" cy="50" r="32" fill="none" stroke="#111" stroke-width="8"/>
-    <rect x="70" y="38" width="18" height="24" rx="4" fill="#222" stroke="#111" stroke-width="3"/>
-    <circle cx="79" cy="45" r="2" fill="#fff"/>
-    <circle cx="79" cy="55" r="2" fill="#fff"/>
-  </svg>`,
-
-  cameraRig: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="20" y="32" width="55" height="42" rx="4" fill="#1e293b" stroke="#000" stroke-width="4"/>
-    <circle cx="46" cy="53" r="16" fill="#0f172a" stroke="#64748b" stroke-width="3"/>
-    <circle cx="46" cy="53" r="8" fill="#38bdf8"/>
-    <rect x="30" y="18" width="30" height="14" rx="2" fill="#334155" stroke="#000" stroke-width="3"/>
-    <path d="M 75 42 L 90 32 L 90 70 L 75 62 Z" fill="#111" stroke="#000" stroke-width="3"/>
-  </svg>`,
-
-  powerconCable: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round">
-    <rect x="15" y="36" width="30" height="28" rx="4" fill="#0284c7" stroke="#000" stroke-width="4"/>
-    <rect x="55" y="36" width="30" height="28" rx="4" fill="#eab308" stroke="#000" stroke-width="4"/>
-    <path d="M 45 50 L 55 50" stroke="#111" stroke-width="6"/>
-  </svg>`,
-
-  genericBox: `<svg viewBox="0 0 100 100" fill="none" stroke="#666" stroke-width="2">
-    <rect x="20" y="20" width="60" height="60" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="3"/>
-    <line x1="20" y1="40" x2="80" y2="40" stroke="#cbd5e1" stroke-width="2"/>
-    <circle cx="50" cy="60" r="10" stroke="#cbd5e1" stroke-width="2"/>
-  </svg>`,
-
-  aputureStorm80c: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="22" y="24" width="56" height="48" rx="6" fill="#1e293b" stroke="#000" stroke-width="4"/>
-    <circle cx="50" cy="48" r="18" fill="#0f172a" stroke="#e2e8f0" stroke-width="3"/>
-    <circle cx="50" cy="48" r="9" fill="#38bdf8"/>
-    <rect x="16" y="36" width="6" height="24" rx="2" fill="#475569" stroke="#000" stroke-width="2"/>
-    <rect x="78" y="32" width="8" height="32" rx="3" fill="#64748b" stroke="#000" stroke-width="2"/>
-    <path d="M 40 72 L 40 88 L 60 88 L 60 72" fill="#334155" stroke="#000" stroke-width="3"/>
-  </svg>`,
-
-  aputureCf4Fresnel: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 25 30 L 75 30 L 85 70 L 15 70 Z" fill="#334155" stroke="#000" stroke-width="4"/>
-    <ellipse cx="50" cy="70" rx="35" ry="12" fill="#0284c7" stroke="#38bdf8" stroke-width="3"/>
-    <path d="M 25 30 L 5 15" stroke="#000" stroke-width="4"/>
-    <path d="M 75 30 L 95 15" stroke="#000" stroke-width="4"/>
-    <path d="M 15 70 L 2 85" stroke="#000" stroke-width="4"/>
-    <path d="M 85 70 L 98 85" stroke="#000" stroke-width="4"/>
-  </svg>`,
-
-  stormMiniLantern: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="50" cy="50" rx="34" ry="32" fill="#f8fafc" stroke="#0f172a" stroke-width="4"/>
-    <path d="M 50 18 C 30 25, 30 75, 50 82" stroke="#cbd5e1" stroke-width="3" fill="none"/>
-    <path d="M 50 18 C 70 25, 70 75, 50 82" stroke="#cbd5e1" stroke-width="3" fill="none"/>
-    <rect x="42" y="10" width="16" height="8" rx="2" fill="#334155" stroke="#000" stroke-width="2"/>
-  </svg>`,
-
-  aputureQuickDome: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 50 15 L 88 40 L 78 85 L 22 85 L 12 40 Z" fill="#1e293b" stroke="#000" stroke-width="4"/>
-    <polygon points="50,25 80,45 72,80 28,80 20,45" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2"/>
-  </svg>`,
-
-  bowensAdapter: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="50" cy="50" r="32" fill="#334155" stroke="#000" stroke-width="4"/>
-    <circle cx="50" cy="50" r="18" fill="#0f172a" stroke="#94a3b8" stroke-width="3"/>
-    <rect x="47" y="12" width="6" height="10" rx="2" fill="#94a3b8" stroke="#000" stroke-width="2"/>
-    <rect x="47" y="78" width="6" height="10" rx="2" fill="#94a3b8" stroke="#000" stroke-width="2"/>
-    <rect x="12" y="47" width="10" height="6" rx="2" fill="#94a3b8" stroke="#000" stroke-width="2"/>
-  </svg>`,
-
-  superClamp: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 25 25 L 55 25 L 75 45 L 75 75 L 45 75 L 25 55 Z" fill="#1e293b" stroke="#000" stroke-width="4"/>
-    <circle cx="48" cy="50" r="12" fill="#0f172a" stroke="#64748b" stroke-width="2"/>
-    <line x1="75" y1="45" x2="92" y2="45" stroke="#f59e0b" stroke-width="6"/>
-  </svg>`,
-
-  magicArmMount: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="28" cy="30" r="12" fill="#64748b" stroke="#000" stroke-width="3"/>
-    <line x1="38" y1="36" x2="62" y2="64" stroke="#000" stroke-width="8"/>
-    <circle cx="72" cy="70" r="12" fill="#64748b" stroke="#000" stroke-width="3"/>
-    <circle cx="50" cy="50" r="8" fill="#f59e0b" stroke="#000" stroke-width="3"/>
-  </svg>`,
-
-  rollingFlightcase: `<svg viewBox="0 0 100 100" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="18" y="24" width="64" height="54" rx="6" fill="#0f172a" stroke="#000" stroke-width="4"/>
-    <line x1="18" y1="45" x2="82" y2="45" stroke="#334155" stroke-width="3"/>
-    <rect x="42" y="16" width="16" height="8" rx="2" fill="#475569" stroke="#000" stroke-width="3"/>
-    <circle cx="30" cy="84" r="6" fill="#334155" stroke="#000" stroke-width="3"/>
-    <circle cx="70" cy="84" r="6" fill="#334155" stroke="#000" stroke-width="3"/>
-  </svg>`,
-};
 
 // --- DEFAULT GEAR DATABASE ---
 const DEFAULT_GEAR_DATABASE = [
@@ -308,7 +118,7 @@ const DEFAULT_GEAR_DATABASE = [
       "sdi 1.5m",
       "bnc coax",
     ],
-    image: AV_ICONS.sdiCable,
+    image: "",
   },
   {
     id: "cable-sdi-bnc-10m",
@@ -326,14 +136,14 @@ const DEFAULT_GEAR_DATABASE = [
       "sdi reel 25m",
       "video reel",
     ],
-    image: AV_ICONS.sdiCable,
+    image: "",
   },
   {
     id: "cable-sdi-micro-bnc",
     name: "Micro BNC (HD-BNC) to Standard BNC 12G-SDI Cable 1.0m",
     category: "cables",
     aliases: ["micro bnc", "micro sdi", "din 1.0", "sdi micro", "atem bnc", "din sdi", "hd-bnc"],
-    image: AV_ICONS.sdiCable,
+    image: "",
   },
   {
     id: "cable-c13-schuko",
@@ -351,56 +161,56 @@ const DEFAULT_GEAR_DATABASE = [
       "c13 cable",
       "schuko male - iec female",
     ],
-    image: AV_ICONS.schukoCable,
+    image: "",
   },
   {
     id: "cable-powercon-true1-top",
     name: "PowerCON TRUE1 TOP Link Cable 1.5m",
     category: "cables",
     aliases: ["true1", "powercon", "top", "true 1", "nac3fx", "power link", "true1 cable"],
-    image: AV_ICONS.powerconCable,
+    image: "",
   },
   {
     id: "cable-powercon-blue-grey",
     name: "PowerCON 20A Blue to Grey Link Cable 2.0m",
     category: "cables",
     aliases: ["powercon blue", "grey", "nac3fca", "power link 20a"],
-    image: AV_ICONS.powerconCable,
+    image: "",
   },
   {
     id: "cable-dmx-5pin-3m",
     name: "DMX 5-Pin XLR Cable 3.0 Meter Black",
     category: "cables",
     aliases: ["dmx", "5-pin", "5pin", "dmx 5", "neutrik 5p", "lighting cable", "dmx 5p"],
-    image: AV_ICONS.xlrCable,
+    image: "",
   },
   {
     id: "cable-dmx-3pin-3m",
     name: "DMX 3-Pin XLR Cable 3.0 Meter Black",
     category: "cables",
     aliases: ["dmx 3", "3-pin", "3pin", "dmx 3p", "xlr cable"],
-    image: AV_ICONS.xlrCable,
+    image: "",
   },
   {
     id: "cable-hdmi-4k-2m",
     name: "High Speed 4K HDMI 2.0 / 2.1 Video Cable 2.0m",
     category: "cables",
     aliases: ["hdmi", "hdmi cable", "4k", "4k hdmi", "high speed", "video cable", "hdmi 2.0", "hdmi 2m", "hdmi 5m"],
-    image: AV_ICONS.hdmiCable,
+    image: "",
   },
   {
     id: "cable-micro-hdmi-2m",
     name: "Micro HDMI Type D to Standard HDMI Cable 2.0m",
     category: "cables",
     aliases: ["micro hdmi", "type d", "atem micro", "hdmi d"],
-    image: AV_ICONS.hdmiCable,
+    image: "",
   },
   {
     id: "cable-cat6-ethercon-5m",
     name: "Cat6 RJ45 EtherCON Rugged Network Cable 5.0m",
     category: "cables",
     aliases: ["cat6", "ethercon", "rj45", "lan", "network cable", "dante", "ethernet", "cat6 cable"],
-    image: AV_ICONS.etherconCable,
+    image: "",
   },
 
   // LIGHTING & OPTICS (ASTERA & GENERAL)
@@ -409,98 +219,98 @@ const DEFAULT_GEAR_DATABASE = [
     name: "Astera AX3 LightDrop Wireless Spotlight",
     category: "lighting",
     aliases: ["ax3", "astera ax3", "lightdrop", "spotlight", "battery par"],
-    image: AV_ICONS.asteraAx3,
+    image: "",
   },
   {
     id: "optic-diffusor-32",
     name: "Astera Diffusor Lens 32° (Beam Shaper)",
     category: "lighting",
     aliases: ["32", "32 deg", "diffusor 32", "diffuser 32", "lens 32", "filter"],
-    image: AV_ICONS.diffusor32,
+    image: "",
   },
   {
     id: "optic-diffusor-120",
     name: "Astera Diffusor Lens 120° (Wide Flood)",
     category: "lighting",
     aliases: ["120", "120 deg", "diffusor 120", "diffuser 120", "wide lens", "flood"],
-    image: AV_ICONS.diffusor120,
+    image: "",
   },
   {
     id: "optic-diffusor-dome-220",
     name: "Astera Diffusor Dome Lens 220° (Wallwash)",
     category: "lighting",
     aliases: ["220", "220 deg", "diffusor dome", "dome 220", "dome lens", "globe"],
-    image: AV_ICONS.diffusorDome220,
+    image: "",
   },
   {
     id: "accessory-astera-plug",
     name: "Astera Rubber Power Socket Sealing Plug",
     category: "lighting",
     aliases: ["rubber plug", "socket plug", "power plug cap", "rubber cap", "ip65 cap", "sealing plug"],
-    image: AV_ICONS.rubberPlug,
+    image: "",
   },
   {
     id: "remote-astera-arc1",
     name: "Astera ARC1 Infra-Red Remote Control",
     category: "lighting",
     aliases: ["arc1", "remote", "ir remote", "astera remote", "controller"],
-    image: AV_ICONS.remoteControl,
+    image: "",
   },
   {
     id: "light-aputure-storm80c",
     name: "Aputure STORM 80c Lamp Head (80W BLAIR-CG)",
     category: "lighting",
     aliases: ["storm 80c", "storm80c", "aputure storm", "blair", "80c lamp", "point source"],
-    image: AV_ICONS.aputureStorm80c,
+    image: "",
   },
   {
     id: "light-aputure-cf4",
     name: "Aputure CF4 Compact Fresnel with Barn Doors",
     category: "lighting",
     aliases: ["cf4", "fresnel", "aputure fresnel", "compact fresnel", "barn doors", "focusing lens"],
-    image: AV_ICONS.aputureCf4Fresnel,
+    image: "",
   },
   {
     id: "optic-storm-lantern",
     name: "Aputure STORM 80c Mini Lantern Diffuser",
     category: "lighting",
     aliases: ["lantern", "mini lantern", "storm lantern", "softbox globe", "diffuser"],
-    image: AV_ICONS.stormMiniLantern,
+    image: "",
   },
   {
     id: "optic-aputure-dome40",
     name: "Aputure Quick Dome 40 Octagonal Softbox",
     category: "lighting",
     aliases: ["quick dome", "dome 40", "softbox", "grid", "octadome", "diffuser 40"],
-    image: AV_ICONS.aputureQuickDome,
+    image: "",
   },
   {
     id: "mount-storm-bowens",
     name: "Bowens Mount Speedring Adapter for STORM 80c",
     category: "lighting",
     aliases: ["bowens", "bowens adapter", "speedring", "mini pro lock to bowens"],
-    image: AV_ICONS.bowensAdapter,
+    image: "",
   },
   {
     id: "rig-super-clamp",
     name: 'Aputure Heavy Duty Super Clamp with 5/8" Stud',
     category: "rigging",
     aliases: ["super clamp", "clamp 5/8", "stud clamp", "convi clamp", "grip clamp"],
-    image: AV_ICONS.superClamp,
+    image: "",
   },
   {
     id: "rig-magic-arm",
     name: "Universal Articulated Magic Arm Mount",
     category: "rigging",
     aliases: ["magic arm", "articulated arm", "arm mount", "friction arm"],
-    image: AV_ICONS.magicArmMount,
+    image: "",
   },
   {
     id: "case-rolling-flightcase",
     name: "Heavy-Duty Hard-Shell Rolling Flightcase",
     category: "accessories",
     aliases: ["flightcase", "rolling case", "hard case", "peli", "transport case"],
-    image: AV_ICONS.rollingFlightcase,
+    image: "",
   },
 
   // RIGGING & CLAMPS
@@ -509,21 +319,21 @@ const DEFAULT_GEAR_DATABASE = [
     name: "Astera Eyebolt Hook with M4 Thread",
     category: "rigging",
     aliases: ["m4 hook", "eyebolt", "hook m4", "eye bolt", "thread hook", "hanging ring"],
-    image: AV_ICONS.eyeboltHook,
+    image: "",
   },
   {
     id: "rig-omega-bracket",
     name: "Fast-Lock Quick Release Omega Bracket Clamp",
     category: "rigging",
     aliases: ["omega bracket", "omega", "quick lock", "truss clamp", "moving head clamp"],
-    image: AV_ICONS.eyeboltHook,
+    image: "",
   },
   {
     id: "rig-safety-wire-35kg",
     name: "Safety Wire Steel Cable 35kg Rating w/ Carabiner",
     category: "rigging",
     aliases: ["safety wire", "safety cable", "steel wire", "fall arrest", "carabiner"],
-    image: AV_ICONS.eyeboltHook,
+    image: "",
   },
 
   // AUDIO & MICS
@@ -532,28 +342,28 @@ const DEFAULT_GEAR_DATABASE = [
     name: "Sennheiser SKM Handheld Transmitter w/ MMD 835",
     category: "audio",
     aliases: ["skm", "ew-dx", "sennheiser mic", "handheld", "wireless mic", "835"],
-    image: AV_ICONS.wirelessMic,
+    image: "",
   },
   {
     id: "audio-sennheiser-sk-bodypack",
     name: "Sennheiser SK Bodypack Transmitter w/ ME2 Lavalier",
     category: "audio",
     aliases: ["bodypack", "beltpack", "lavalier", "me2", "tie clip mic"],
-    image: AV_ICONS.wirelessMic,
+    image: "",
   },
   {
     id: "audio-shure-sm58",
     name: "Shure SM58 Dynamic Vocal Microphone",
     category: "audio",
     aliases: ["sm58", "shure 58", "dynamic mic", "vocal mic"],
-    image: AV_ICONS.wirelessMic,
+    image: "",
   },
   {
     id: "audio-battery-ba70",
     name: "Sennheiser BA70 Li-Ion Rechargeable Battery Pack",
     category: "audio",
     aliases: ["ba70", "rechargeable battery", "sennheiser battery", "mic battery"],
-    image: AV_ICONS.rubberPlug,
+    image: "",
   },
 
   // VIDEO & SWITCHING
@@ -562,28 +372,28 @@ const DEFAULT_GEAR_DATABASE = [
     name: "Blackmagic ATEM Mini Extreme ISO Switcher",
     category: "video",
     aliases: ["atem", "atem mini", "switcher", "extreme iso", "video switcher", "hdmi switcher"],
-    image: AV_ICONS.genericBox,
+    image: "",
   },
   {
     id: "video-sony-fx6",
     name: "Sony FX6 Cinema Camera Body Full-Frame 4K",
     category: "video",
     aliases: ["fx6", "sony fx6", "cinema camera", "4k camera", "camera body"],
-    image: AV_ICONS.cameraRig,
+    image: "",
   },
   {
     id: "video-sony-bpu70",
     name: "Sony BP-U70 High Capacity Lithium Battery",
     category: "video",
     aliases: ["bp-u70", "bpu70", "bp-u", "sony battery", "camera battery"],
-    image: AV_ICONS.rubberPlug,
+    image: "",
   },
   {
     id: "video-sandisk-ssd",
     name: "SanDisk Extreme Pro 1TB Portable SSD USB-C",
     category: "video",
     aliases: ["ssd", "sandisk ssd", "external drive", "usb-c drive", "recording drive"],
-    image: AV_ICONS.remoteControl,
+    image: "",
   },
 ];
 
@@ -603,14 +413,14 @@ const DEFAULT_CARD = {
   printerMargin: 5,
   showMarginGuide: true,
   items: [
-    { id: "1", qty: "8", content: "Astera Ax3\nLightDrop", image: AV_ICONS.asteraAx3 },
-    { id: "2", qty: "1", content: "Schuko Male -\nIEC Female 1,5 meter", image: AV_ICONS.schukoCable },
-    { id: "3", qty: "8", content: "Astera Diffusor Lens\n32°", image: AV_ICONS.diffusor32 },
-    { id: "4", qty: "8", content: "Astera Diffusor Lens\n120°", image: AV_ICONS.diffusor120 },
-    { id: "5", qty: "8", content: "Astera Diffusor Dome Lens\n220°", image: AV_ICONS.diffusorDome220 },
-    { id: "6", qty: "8", content: "Astera Hook with\nM4 thread", image: AV_ICONS.eyeboltHook },
-    { id: "7", qty: "8", content: "Astera Rubber\nPower socket plug", image: AV_ICONS.rubberPlug },
-    { id: "8", qty: "1", content: "Astera ARC1 Infra-\nRed Remote Control", image: AV_ICONS.remoteControl },
+    { id: "1", qty: "8", content: "Astera Ax3\nLightDrop", image: "" },
+    { id: "2", qty: "1", content: "Schuko Male -\nIEC Female 1,5 meter", image: "" },
+    { id: "3", qty: "8", content: "Astera Diffusor Lens\n32°", image: "" },
+    { id: "4", qty: "8", content: "Astera Diffusor Lens\n120°", image: "" },
+    { id: "5", qty: "8", content: "Astera Diffusor Dome Lens\n220°", image: "" },
+    { id: "6", qty: "8", content: "Astera Hook with\nM4 thread", image: "" },
+    { id: "7", qty: "8", content: "Astera Rubber\nPower socket plug", image: "" },
+    { id: "8", qty: "1", content: "Astera ARC1 Infra-\nRed Remote Control", image: "" },
   ],
 };
 
@@ -1075,17 +885,13 @@ function renderCard() {
 
     const imgWrap = document.createElement("div");
     imgWrap.className = "cell-img-wrap";
-    if (item.image) {
-      if (isOwnIcon(item.image)) {
-        imgWrap.innerHTML = item.image;
-      } else {
-        const img = document.createElement("img");
-        img.src = safeImageSrc(item.image);
-        img.alt = item.content || "photo";
-        imgWrap.appendChild(img);
-      }
-    } else if (item.noImage) {
-      // Rentman item without a photo or a close database match: say so instead of guessing
+    if (item.image && !isFillerIcon(item.image)) {
+      const img = document.createElement("img");
+      img.src = safeImageSrc(item.image);
+      img.alt = item.content || "photo";
+      imgWrap.appendChild(img);
+    } else if (item.noImage || isFillerIcon(item.image)) {
+      // No photo, or an old stock icon: say so instead of guessing
       const missing = document.createElement("div");
       missing.className = "no-image-placeholder";
       missing.textContent = "No image";
@@ -1952,8 +1758,8 @@ function detectCategoryFromName(name) {
 }
 
 function registerOrUpdateGlobalGear(name, imageData, category = null, notify = true) {
-  // No image means nothing to save: never create a photo-less entry or blank out an existing photo
-  if (!name || typeof imageData !== "string" || !imageData.trim()) return;
+  // No image (or an old stock icon) means nothing to save: never create a photo-less entry or blank out a photo
+  if (!name || typeof imageData !== "string" || !imageData.trim() || isFillerIcon(imageData)) return;
   const cleanName = name.replace(/\n/g, " ").trim();
   if (!cleanName || cleanName.length < 2) return;
 
@@ -1979,8 +1785,8 @@ function registerOrUpdateGlobalGear(name, imageData, category = null, notify = t
   if (existingIdx >= 0) {
     // A built-in placeholder icon never replaces a real photo the user already has
     const current = customGearDb[existingIdx].image;
-    const hasRealPhoto = typeof current === "string" && current.trim() !== "" && !isOwnIcon(current);
-    if (!(hasRealPhoto && isOwnIcon(imageData))) customGearDb[existingIdx].image = imageData;
+    const hasRealPhoto = typeof current === "string" && current.trim() !== "" && !isFillerIcon(current);
+    if (!(hasRealPhoto && isFillerIcon(imageData))) customGearDb[existingIdx].image = imageData;
     if (!customGearDb[existingIdx].aliases) customGearDb[existingIdx].aliases = [];
     aliases.forEach((a) => {
       if (!customGearDb[existingIdx].aliases.includes(a)) {
@@ -2243,7 +2049,7 @@ function initGearDatabaseModule() {
       .filter((a) => a.length > 0);
     aliases.push(name.toLowerCase());
 
-    const finalPhoto = currentEditingGearPhoto || AV_ICONS.genericBox;
+    const finalPhoto = currentEditingGearPhoto || "";
 
     if (editingGearItemId) {
       // Edit existing item
@@ -2254,7 +2060,7 @@ function initGearDatabaseModule() {
         name: name,
         category: category,
         aliases: aliases,
-        image: currentEditingGearPhoto || (previousItem ? previousItem.image : AV_ICONS.genericBox),
+        image: currentEditingGearPhoto || (previousItem ? previousItem.image : ""),
         isCustom: true,
       };
 
@@ -2721,7 +2527,7 @@ function renderGearDbTabList() {
     const card = document.createElement("div");
     card.className = "gear-tile";
 
-    const imgHtml = imageHtml(item.image) || AV_ICONS.genericBox;
+    const imgHtml = imageHtml(item.image) || NO_IMAGE_HTML;
 
     card.innerHTML = `
       <div class="gear-tile-photo card-add-trigger" title="Add to card">${imgHtml}</div>
@@ -2881,7 +2687,7 @@ function renderModalGearPickerGrid() {
     card.type = "button";
     card.className = "gear-tile";
 
-    const imgHtml = imageHtml(item.image) || AV_ICONS.genericBox;
+    const imgHtml = imageHtml(item.image) || NO_IMAGE_HTML;
 
     card.innerHTML = `
       <span class="gear-tile-photo">${imgHtml}</span>
@@ -2913,9 +2719,11 @@ function findGearByNameStrict(name) {
 
 /** A Rentman item's own photo, else the photo of a strict (90%+) database match, else "". Never a guess. */
 function resolveRentmanImage(name, rentmanImg) {
-  if (typeof rentmanImg === "string" && rentmanImg.trim()) return rentmanImg;
+  if (typeof rentmanImg === "string" && rentmanImg.trim() && !isFillerIcon(rentmanImg)) return rentmanImg;
   const match = findGearByNameStrict(name);
-  return match && typeof match.image === "string" && match.image.trim() ? match.image : "";
+  return match && typeof match.image === "string" && match.image.trim() && !isFillerIcon(match.image)
+    ? match.image
+    : "";
 }
 
 function findGearInDatabase(term) {
@@ -3256,14 +3064,14 @@ function parseAndDisplayExtractedContent(title, rawText) {
       desc = line.replace(/^[-*•\s]+/, "");
     }
 
-    const matchedIcon = matchIconForDescription(desc);
+    const matchedImage = resolveRentmanImage(desc, "");
 
     if (desc && desc.length >= 2) {
       detectedItems.push({
         id: String(Date.now() + Math.random()),
         qty: qty,
         content: formatDescriptionForCard(desc),
-        image: matchedIcon,
+        image: matchedImage,
         selected: true,
       });
     }
@@ -3274,7 +3082,7 @@ function parseAndDisplayExtractedContent(title, rawText) {
       id: "1",
       qty: "1",
       content: mainTitle,
-      image: AV_ICONS.genericBox,
+      image: "",
       selected: true,
     });
   }
@@ -3313,90 +3121,6 @@ function parseAndDisplayExtractedContent(title, rawText) {
 
     tableBody.appendChild(tr);
   });
-}
-
-function matchIconForDescription(desc) {
-  const dbMatch = findGearInDatabase(desc);
-  if (dbMatch) return dbMatch.image;
-
-  const d = desc.toLowerCase();
-  if (
-    d.includes("storm") ||
-    d.includes("aputure") ||
-    d.includes("lamp") ||
-    d.includes("head") ||
-    d.includes("ax3") ||
-    d.includes("spot") ||
-    d.includes("light") ||
-    d.includes("fixture") ||
-    d.includes("par")
-  ) {
-    return AV_ICONS.asteraAx3;
-  }
-  if (d.includes("fresnel") || d.includes("cf4") || d.includes("dome") || d.includes("220")) {
-    return AV_ICONS.diffusorDome220;
-  }
-  if (
-    d.includes("reflector") ||
-    d.includes("32") ||
-    d.includes("lens") ||
-    d.includes("diffusor") ||
-    d.includes("filter")
-  ) {
-    return AV_ICONS.diffusor32;
-  }
-  if (d.includes("lantern") || d.includes("softbox") || d.includes("120") || d.includes("wide")) {
-    return AV_ICONS.diffusor120;
-  }
-  if (
-    d.includes("clamp") ||
-    d.includes("arm") ||
-    d.includes("hook") ||
-    d.includes("eyebolt") ||
-    d.includes("omega") ||
-    d.includes("mount") ||
-    d.includes("bracket") ||
-    d.includes("adapter")
-  ) {
-    return AV_ICONS.eyeboltHook;
-  }
-  if (
-    d.includes("c13") ||
-    d.includes("schuko") ||
-    d.includes("power") ||
-    d.includes("iec") ||
-    d.includes("mains") ||
-    d.includes("d-tap") ||
-    d.includes("dc cable") ||
-    d.includes("lead")
-  ) {
-    return AV_ICONS.schukoCable;
-  }
-  if (d.includes("plug") || d.includes("rubber") || d.includes("cap") || d.includes("battery")) {
-    return AV_ICONS.rubberPlug;
-  }
-  if (
-    d.includes("remote") ||
-    d.includes("arc1") ||
-    d.includes("controller") ||
-    d.includes("card") ||
-    d.includes("ssd")
-  ) {
-    return AV_ICONS.remoteControl;
-  }
-  if (d.includes("mic") || d.includes("microphone") || d.includes("skm") || d.includes("transmitter")) {
-    return AV_ICONS.wirelessMic;
-  }
-  if (d.includes("xlr") || d.includes("dmx") || d.includes("hdmi") || d.includes("sdi")) {
-    return AV_ICONS.xlrCable;
-  }
-  if (d.includes("camera") || d.includes("fx6") || d.includes("switcher") || d.includes("atem")) {
-    return AV_ICONS.cameraRig;
-  }
-  if (d.includes("powercon") || d.includes("true1")) {
-    return AV_ICONS.powerconCable;
-  }
-  return AV_ICONS.genericBox;
 }
 
 function formatDescriptionForCard(text) {
@@ -4410,8 +4134,8 @@ function createNewBlankCard() {
     printerMargin: 5,
     showMarginGuide: true,
     items: [
-      { id: String(Date.now()), qty: "1", content: "Main Equipment Unit", image: AV_ICONS.genericBox },
-      { id: String(Date.now() + 1), qty: "1", content: "Mains Power Cable 1.5m", image: AV_ICONS.schukoCable },
+      { id: String(Date.now()), qty: "1", content: "Main Equipment Unit", image: "" },
+      { id: String(Date.now() + 1), qty: "1", content: "Mains Power Cable 1.5m", image: "" },
       { id: String(Date.now() + 2), qty: "", content: "", image: "" },
     ],
   };
@@ -4661,7 +4385,7 @@ function initEventListeners() {
       id: String(Date.now()),
       qty: "1",
       content: "New Item Description",
-      image: AV_ICONS.genericBox,
+      image: "",
     });
     renderCard();
     renderSidebar();
@@ -5184,33 +4908,32 @@ const RENTMAN_SAMPLE_DATA = [
     category: "lighting",
     current_quantity: 8,
     image: "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.asteraAx3,
     items: [
-      { id: 201, qty: "8", name: "Astera AX3 LightDrop Fixture", code: "LIG-AX3", image: AV_ICONS.asteraAx3 },
+      { id: 201, qty: "8", name: "Astera AX3 LightDrop Fixture", code: "LIG-AX3", image: "" },
       {
         id: 202,
         qty: "1",
         name: "Schuko Male to IEC Mains Cable 1.5m",
         code: "CAB-PWR-01",
-        image: AV_ICONS.schukoCable,
+        image: "",
       },
-      { id: 203, qty: "8", name: "Astera Diffusor Lens 32°", code: "ACC-LENS-32", image: AV_ICONS.diffusor32 },
-      { id: 204, qty: "8", name: "Astera Diffusor Lens 120°", code: "ACC-LENS-120", image: AV_ICONS.diffusor120 },
+      { id: 203, qty: "8", name: "Astera Diffusor Lens 32°", code: "ACC-LENS-32", image: "" },
+      { id: 204, qty: "8", name: "Astera Diffusor Lens 120°", code: "ACC-LENS-120", image: "" },
       {
         id: 205,
         qty: "8",
         name: "Astera Diffusor Dome Lens 220°",
         code: "ACC-DOME-220",
-        image: AV_ICONS.diffusorDome220,
+        image: "",
       },
-      { id: 206, qty: "8", name: "Astera Hook with M4 Thread", code: "RIG-HOOK-M4", image: AV_ICONS.eyeboltHook },
-      { id: 207, qty: "8", name: "Astera Rubber Power Socket Plug", code: "ACC-PLUG-RUB", image: AV_ICONS.rubberPlug },
+      { id: 206, qty: "8", name: "Astera Hook with M4 Thread", code: "RIG-HOOK-M4", image: "" },
+      { id: 207, qty: "8", name: "Astera Rubber Power Socket Plug", code: "ACC-PLUG-RUB", image: "" },
       {
         id: 208,
         qty: "1",
         name: "Astera ARC1 Infrared Remote Control",
         code: "CTRL-ARC1",
-        image: AV_ICONS.remoteControl,
+        image: "",
       },
     ],
   },
@@ -5223,50 +4946,49 @@ const RENTMAN_SAMPLE_DATA = [
     category: "video",
     current_quantity: 4,
     image: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.cameraRig,
     items: [
       {
         id: 211,
         qty: "1",
         name: "Sony FX6 Full-Frame Cinema Camera Body 4K",
         code: "CAM-FX6-01",
-        image: AV_ICONS.cameraRig,
+        image: "",
       },
       {
         id: 212,
         qty: "1",
         name: "Sony FE 24-70mm f/2.8 GM II Zoom Lens",
         code: "OPT-2470-GM",
-        image: AV_ICONS.fresnelLens,
+        image: "",
       },
       {
         id: 213,
         qty: "2",
         name: "Sony BP-U70 High Capacity Lithium Battery",
         code: "BAT-BPU70",
-        image: AV_ICONS.rubberPlug,
+        image: "",
       },
-      { id: 214, qty: "1", name: "Sony BC-CU1 Dual Battery Charger", code: "CHG-BPU-02", image: AV_ICONS.schukoCable },
+      { id: 214, qty: "1", name: "Sony BC-CU1 Dual Battery Charger", code: "CHG-BPU-02", image: "" },
       {
         id: 215,
         qty: "2",
         name: "SanDisk Extreme Pro 1TB Portable SSD USB-C",
         code: "REC-SSD-1TB",
-        image: AV_ICONS.remoteControl,
+        image: "",
       },
       {
         id: 216,
         qty: "2",
         name: "Canare 12G-SDI 4K BNC Coaxial Cable 3m",
         code: "CAB-SDI-3M",
-        image: AV_ICONS.sdiCable,
+        image: "",
       },
       {
         id: 217,
         qty: "1",
         name: "SmallRig Top Handle & Monitor Bracket",
         code: "RIG-FX6-TH",
-        image: AV_ICONS.magicArmMount,
+        image: "",
       },
     ],
   },
@@ -5279,38 +5001,37 @@ const RENTMAN_SAMPLE_DATA = [
     category: "audio",
     current_quantity: 6,
     image: "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.wirelessMic,
     items: [
       {
         id: 221,
         qty: "1",
         name: "Sennheiser EW-DX EM2 Dual Channel Receiver",
         code: "AUD-EWDX-REC",
-        image: AV_ICONS.wirelessMic,
+        image: "",
       },
       {
         id: 222,
         qty: "2",
         name: "Sennheiser EW-DX SKM-S Handheld Transmitter",
         code: "AUD-SKM-835",
-        image: AV_ICONS.wirelessMic,
+        image: "",
       },
-      { id: 223, qty: "2", name: "BNC 1/2 Wave Rod Antennas", code: "AUD-ANT-BNC", image: AV_ICONS.sdiCable },
+      { id: 223, qty: "2", name: "BNC 1/2 Wave Rod Antennas", code: "AUD-ANT-BNC", image: "" },
       {
         id: 224,
         qty: "4",
         name: "Sennheiser BA 70 Rechargeable Battery Pack",
         code: "BAT-BA70",
-        image: AV_ICONS.rubberPlug,
+        image: "",
       },
       {
         id: 225,
         qty: "1",
         name: "NT 12-5 CW+ Universal Power Supply EU/UK",
         code: "PWR-NT12-5",
-        image: AV_ICONS.schukoCable,
+        image: "",
       },
-      { id: 226, qty: "2", name: "Microphone Stand Clamps MZQ 1", code: "RIG-MZQ1", image: AV_ICONS.superClamp },
+      { id: 226, qty: "2", name: "Microphone Stand Clamps MZQ 1", code: "RIG-MZQ1", image: "" },
     ],
   },
   {
@@ -5322,43 +5043,42 @@ const RENTMAN_SAMPLE_DATA = [
     category: "lighting",
     current_quantity: 2,
     image: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.stormLampHead,
     items: [
       {
         id: 231,
         qty: "3",
         name: "Aputure STORM 80c Lamp Head (BLAIR-CG)",
         code: "LIG-STORM-80C",
-        image: AV_ICONS.stormLampHead,
+        image: "",
       },
       {
         id: 232,
         qty: "3",
         name: "STORM 80c Hyper Reflector (Mini Pro Lock)",
         code: "OPT-REF-80C",
-        image: AV_ICONS.hyperReflector,
+        image: "",
       },
       {
         id: 233,
         qty: "3",
         name: "Aputure CF4 Fresnel with Barn Doors",
         code: "OPT-FRES-CF4",
-        image: AV_ICONS.cf4Fresnel,
+        image: "",
       },
       {
         id: 234,
         qty: "3",
         name: "STORM 80c Mini Lantern Diffuser",
         code: "OPT-LANT-80C",
-        image: AV_ICONS.stormMiniLantern,
+        image: "",
       },
-      { id: 235, qty: "3", name: "Locking AC Power Cable 4.0m", code: "CAB-AC-LOCK", image: AV_ICONS.schukoCable },
+      { id: 235, qty: "3", name: "Locking AC Power Cable 4.0m", code: "CAB-AC-LOCK", image: "" },
       {
         id: 236,
         qty: "3",
         name: 'Aputure Super Clamp with 5/8" Stud',
         code: "RIG-CLAMP-APU",
-        image: AV_ICONS.superClamp,
+        image: "",
       },
     ],
   },
@@ -5371,37 +5091,36 @@ const RENTMAN_SAMPLE_DATA = [
     category: "lighting",
     current_quantity: 4,
     image: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.movingHead,
     items: [
       {
         id: 241,
         qty: "2",
         name: "Showtec Phantom 65 LED Moving Head Spot",
         code: "LIG-PHANT-65",
-        image: AV_ICONS.movingHead,
+        image: "",
       },
       {
         id: 242,
         qty: "2",
         name: "Fast-Lock Quick-Release Omega Clamps",
         code: "RIG-OMEGA-01",
-        image: AV_ICONS.superClamp,
+        image: "",
       },
       {
         id: 243,
         qty: "2",
         name: "Certified Safety Eyebolt Steel Wire 35kg",
         code: "RIG-SAFE-35",
-        image: AV_ICONS.eyeboltHook,
+        image: "",
       },
       {
         id: 244,
         qty: "2",
         name: "PowerCON TRUE1 TOP Mains Input Cable 1.5m",
         code: "CAB-TRUE1-15",
-        image: AV_ICONS.powerconCable,
+        image: "",
       },
-      { id: 245, qty: "2", name: "DMX 5-Pin XLR Data Link Cable 3m", code: "CAB-DMX-3M", image: AV_ICONS.dmxCable },
+      { id: 245, qty: "2", name: "DMX 5-Pin XLR Data Link Cable 3m", code: "CAB-DMX-3M", image: "" },
     ],
   },
   {
@@ -5413,29 +5132,28 @@ const RENTMAN_SAMPLE_DATA = [
     category: "video",
     current_quantity: 3,
     image: "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.remoteControl,
     items: [
       {
         id: 251,
         qty: "1",
         name: "Blackmagic ATEM Mini Extreme ISO 8-Input Switcher",
         code: "VID-ATEM-EXT",
-        image: AV_ICONS.remoteControl,
+        image: "",
       },
       {
         id: 252,
         qty: "1",
         name: "12V 36W Power Supply with Lock Plug",
         code: "PWR-ATEM-12V",
-        image: AV_ICONS.schukoCable,
+        image: "",
       },
-      { id: 253, qty: "2", name: "High Speed 4K HDMI 2.0 Cable 2m", code: "CAB-HDMI-2M", image: AV_ICONS.hdmiCable },
+      { id: 253, qty: "2", name: "High Speed 4K HDMI 2.0 Cable 2m", code: "CAB-HDMI-2M", image: "" },
       {
         id: 254,
         qty: "1",
         name: "SanDisk Extreme Pro 1TB Portable SSD USB-C",
         code: "REC-SSD-1TB",
-        image: AV_ICONS.remoteControl,
+        image: "",
       },
     ],
   },
@@ -5448,7 +5166,6 @@ const RENTMAN_SAMPLE_DATA = [
     category: "video",
     current_quantity: 2,
     image: "https://images.unsplash.com/photo-1502920917128-1aa500764cbd?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.cameraRig,
   },
   {
     id: 108,
@@ -5459,7 +5176,6 @@ const RENTMAN_SAMPLE_DATA = [
     category: "cables",
     current_quantity: 12,
     image: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.etherconCable,
   },
   {
     id: 109,
@@ -5470,7 +5186,6 @@ const RENTMAN_SAMPLE_DATA = [
     category: "power",
     current_quantity: 4,
     image: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=400&q=80",
-    fallbackIcon: AV_ICONS.rubberPlug,
   },
 ];
 
@@ -5577,7 +5292,7 @@ function mapRentmanItemToNormalized(item) {
     is_combination: isKit,
     quantity: item.current_quantity || 1,
     category: detectCategoryFromName(itemName),
-    image: item.fallbackIcon || resolveRentmanImage(itemName, imgUrl),
+    image: resolveRentmanImage(itemName, imgUrl),
     items: item.items || null,
   };
 }
@@ -5676,7 +5391,7 @@ function recheckCachedRentmanImage(item) {
   if (!item || item.imageChecked) return;
   item.imageChecked = true;
   const isRentmanPhoto = typeof item.image === "string" && item.image.startsWith("/api/rentman-image");
-  if (isRentmanPhoto || item.fallbackIcon) return;
+  if (isRentmanPhoto) return;
   item.image = resolveRentmanImage(item.name || "", "");
 }
 
@@ -6122,9 +5837,7 @@ function initRentmanModule() {
       const card = document.createElement("div");
       card.className = "rentman-item-card";
 
-      const thumbHtml =
-        imageHtml(item.image, `alt="${escapeHtml(item.name)}" loading="lazy"`) ||
-        '<div class="no-image-placeholder">No image</div>';
+      const thumbHtml = imageHtml(item.image, `alt="${escapeHtml(item.name)}" loading="lazy"`) || NO_IMAGE_HTML;
 
       const isKit = item.is_combination || item.type === "case" || item.type === "set";
       const codeHtml = item.code ? `<span class="rentman-code-tag">${escapeHtml(item.code)}</span>` : "";
@@ -6336,8 +6049,7 @@ function renderRentmanQuickKits() {
     btn.className = "rentman-kit-row";
 
     const thumbHtml =
-      imageHtml(kit.image, 'alt="" style="width:100%; height:100%; object-fit:contain;"') ||
-      '<div class="no-image-placeholder">No image</div>';
+      imageHtml(kit.image, 'alt="" style="width:100%; height:100%; object-fit:contain;"') || NO_IMAGE_HTML;
 
     btn.innerHTML = `
       <div style="display:flex; align-items:center; gap:10px; width:100%;">
