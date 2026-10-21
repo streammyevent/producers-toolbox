@@ -1,8 +1,9 @@
 name: Release
 
 # release-please keeps a release PR open (version bump + CHANGELOG.md) from the Conventional Commits on main. Merging it
-# creates a DRAFT GitHub release; this workflow then builds, signs and verifies the installers and attaches them.
-# Publishing the draft by hand is the release: installed apps only see published releases.
+# creates a DRAFT GitHub release; this workflow then builds, signs and verifies the installers, attaches them and
+# publishes the release. It stays a draft until then: installed apps would find a release without update feeds, and a
+# published release is immutable, so files can no longer be added. Approving the `release` environment is the gate.
 on:
   push:
     branches: [main]
@@ -161,9 +162,11 @@ jobs:
           pattern: packages-*
           path: packages
           merge-multiple: true
-      - name: Attach the installers and update feeds to the draft release
+      - name: Attach the installers and update feeds, then publish
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: gh release upload "$TAG" packages/* --clobber
+        run: |
+          gh release upload "$TAG" packages/* --clobber
+          gh release edit "$TAG" --draft=false --latest
