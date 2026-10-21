@@ -6,10 +6,11 @@ copyright: Copyright © 2026 Stream My Event
 directories:
   output: dist
   buildResources: build
+# Tools go inside app.asar, so asar integrity also covers each tool's api.js (it runs in the main process).
 files:
-  - src/**/*
+  - out/**/*
+  - src/renderer/**/*
   - package.json
-extraResources:
   - from: ../../tools
     to: tools
     filter: ["*/tool.json", "*/api.js", "*/lib/**", "*/web/**"]

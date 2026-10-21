@@ -1,9 +1,7 @@
 {
   "id": "quote-pricer",
   "name": "Quote Pricer",
-  "version": "1.0.0",
-  "icon": null,
-  "entry": "web/index.html",
+  "entry": "index.html",
   "window": { "width": 1280, "height": 860 },
-  "permissions": ["storage", "net-fetch"]
+  "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'"
 }

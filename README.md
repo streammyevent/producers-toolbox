@@ -13,8 +13,9 @@ The app is built with Electron and updates itself from this repo's GitHub Releas
 ## Layout
 
 ```
-apps/desktop/      the Electron app: launcher, tool windows, app:// protocol, secrets, updates
-tools/<id>/        one folder per tool: tool.json, web/ (its pages), optional api.js (main-process code), tests/
+apps/desktop/      the Electron app (TypeScript): launcher, tool windows, app:// protocol, secrets, updates
+tools/<id>/        one folder per tool: tool.json (manifest and policy), web/ (its pages), optional api.js
+                   (main-process code), tests/
 scripts/           repo scripts (secret and personal-data scanner)
 ```
 

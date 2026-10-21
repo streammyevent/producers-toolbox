@@ -2,7 +2,10 @@
 
 Vanilla HTML/CSS/JS in `web/`, no build step. The same pages run inside the Producers Toolbox app and in a plain browser,
 so the code must not depend on Node or Electron. Desktop-only features are behind `window.electronAPI` (secrets, backup
-folder through the main process); without it the tool runs in browser mode.
+folder through the main process); without it the tool runs in browser mode. In the app, `js/desktop-bridge.js` builds
+`window.electronAPI` from the shell's `window.toolbox`, and `tool.json` sets the policy (CSP, camera and clipboard,
+the `gsearchApiKey` secret, the backup folder and its file-name pattern, which must equal `SYNC_FILE_NAME_PATTERN` in
+`util.js`; a unit test in `apps/desktop` checks that).
 
 ## Commands
 

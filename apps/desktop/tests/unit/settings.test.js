@@ -3,7 +3,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { createSettings, sanitize, DEFAULTS } = require("../../src/main/settings");
+const { createSettings, sanitize, DEFAULTS } = require("../../out/main/settings");
 
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tb-settings-")), "nested", "settings.json");
 

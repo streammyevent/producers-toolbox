@@ -2,6 +2,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import js from "@eslint/js";
 import globals from "globals";
 import eslintConfigPrettier from "eslint-config-prettier/flat";
+import tseslint from "typescript-eslint";
 
 const SMOELENBOEK = "tools/smoelenboek/web/js";
 
@@ -26,10 +27,26 @@ export default defineConfig([
     },
   },
 
-  // ---- Node: the shell's main process, scripts, tool main-process code, unit tests ----
+  // ---- TypeScript: the shell (compiled to out/ by tsc, which also type-checks it) ----
+  {
+    files: ["**/*.ts"],
+    extends: [tseslint.configs.recommended],
+    languageOptions: { globals: { ...globals.node } },
+    rules: {
+      // api.js modules are loaded at runtime from the tool folders
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
+    // The contract file declares globals for tool pages (Window, Toolbox, ...)
+    files: ["**/*.d.ts"],
+    rules: { "@typescript-eslint/no-unused-vars": "off" },
+  },
+
+  // ---- Node: the shell's scripts and tests, tool main-process code, repo scripts ----
   {
     files: [
-      "apps/desktop/{src/main,scripts,tests}/**/*.js",
+      "apps/desktop/{scripts,tests}/**/*.js",
       "tools/*/api.js",
       "tools/*/lib/**/*.js",
       "tools/*/tests/**/*.js",

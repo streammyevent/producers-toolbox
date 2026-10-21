@@ -40,7 +40,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 });
 
 async function save(patch) {
-  settings = await window.toolbox.setSettings(patch);
+  settings = await window.launcher.setSettings(patch);
   applyTheme(settings.theme);
   return settings;
 }
@@ -109,13 +109,13 @@ function render() {
     const open = document.createElement("button");
     open.className = "btn btn-primary btn-sm";
     open.textContent = t.running ? "Show" : "Start";
-    open.addEventListener("click", () => window.toolbox.start(t.id));
+    open.addEventListener("click", () => window.launcher.start(t.id));
     actions.append(open);
     if (t.running) {
       const stop = document.createElement("button");
       stop.className = "btn btn-danger btn-sm";
       stop.textContent = "Stop";
-      stop.addEventListener("click", () => window.toolbox.stop(t.id));
+      stop.addEventListener("click", () => window.launcher.stop(t.id));
       actions.append(stop);
     }
 
@@ -136,7 +136,7 @@ function render() {
     remove.textContent = "Remove…";
     remove.addEventListener("click", () => {
       cardMenu.classList.add("hidden");
-      window.toolbox.removeTool(t.id);
+      window.launcher.removeTool(t.id);
     });
     cardMenu.append(remove);
     more.addEventListener("click", (e) => {
@@ -224,15 +224,15 @@ menu.addEventListener("click", async (e) => {
     case "settings":
       return openSettings();
     case "quit":
-      return window.toolbox.quit();
+      return window.launcher.quit();
     case "uninstall":
-      return window.toolbox.uninstall();
+      return window.launcher.uninstall();
     case "updates":
       openModal($("updatesModal"));
       renderUpdates();
       return checkUpdates();
     case "about": {
-      const info = await window.toolbox.appInfo();
+      const info = await window.launcher.appInfo();
       $("aboutText").textContent = `${info.name} v${info.version} (Electron ${info.electron})`;
       return openModal($("aboutModal"));
     }
@@ -251,7 +251,7 @@ async function checkUpdates() {
   checkingNow = true;
   renderUpdates();
   try {
-    updates = await window.toolbox.checkUpdates();
+    updates = await window.launcher.checkUpdates();
   } finally {
     checkingNow = false;
     renderUpdates();
@@ -291,32 +291,34 @@ function renderUpdates() {
   $("updCheck").disabled = checkingNow;
 }
 $("updCheck").addEventListener("click", checkUpdates);
-$("updRestart").addEventListener("click", () => window.toolbox.restartToUpdate());
-$("updatePill").addEventListener("click", () => window.toolbox.restartToUpdate());
-window.toolbox.onUpdateStatus((s) => {
+$("updRestart").addEventListener("click", () => window.launcher.restartToUpdate());
+$("updatePill").addEventListener("click", () => window.launcher.restartToUpdate());
+window.launcher.onUpdateStatus((s) => {
   updates = s;
   renderUpdates();
 });
 
 // Main may change settings too (removing a tool hides/unpins it), so refresh both.
-window.toolbox.onChange(async (list) => {
+window.launcher.onChange(async (list) => {
   tools = list;
-  settings = await window.toolbox.getSettings();
+  settings = await window.launcher.getSettings();
   render();
 });
 Promise.all([
-  window.toolbox.getSettings(),
-  window.toolbox.listTools(),
-  window.toolbox.appInfo(),
-  window.toolbox.updateStatus(),
+  window.launcher.getSettings(),
+  window.launcher.listTools(),
+  window.launcher.appInfo(),
+  window.launcher.updateStatus(),
 ]).then(([s, list, info, upd]) => {
   settings = s;
   updates = upd;
   renderUpdates();
-  if (!info.packaged) {
-    const item = menu.querySelector('[data-action="uninstall"]');
-    item.title = "Only available in the installed app";
-  }
+  // Only the installed Windows app has an uninstaller; on macOS the app goes to the Trash
+  const uninstall = menu.querySelector('[data-action="uninstall"]');
+  if (info.platform !== "win32") {
+    uninstall.remove();
+    $("setStart").closest("label").style.display = "none";
+  } else if (!info.packaged) uninstall.title = "Only available in the installed app";
   applyTheme(s.theme);
   tools = list;
   render();

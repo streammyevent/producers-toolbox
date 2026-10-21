@@ -1,114 +1,160 @@
-// Run: npm test
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const sdk = { netGuard: require("../../../apps/desktop/src/main/net-guard.js") };
-const { handle } = require("../api.js");
+const api = require("../api.js");
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ccs-test-"));
-const ctx = {
-  toolId: "content-card-studio",
-  dataDir: path.join(tmp, "data"),
-  appDataDir: path.join(tmp, "appdata"),
-  documentsDir: path.join(tmp, "docs"),
-  sdk,
-};
-const drive = path.join(tmp, "drive");
-test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("rest")]);
 
-const req = (p, method = "GET", body, headers = {}) =>
-  new Request("app://content-card-studio" + p, {
-    method,
-    headers: { origin: "app://content-card-studio", ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
+/** A ToolContext over a temp folder; `fetches` records every outbound request, `respond` answers it. */
+function makeCtx({ token = "TEST_TOKEN", respond = () => ({ status: 404, body: "" }) } = {}) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ccs-test-"));
+  const drive = path.join(tmp, "drive");
+  let chosen = null;
+  const fetches = [];
+  const ctx = {
+    toolId: "content-card-studio",
+    dataDir: path.join(tmp, "data"),
+    documentsDir: path.join(tmp, "docs"),
+    folder: {
+      status: () => ({ folder: chosen || "", name: "", accessible: !!chosen }),
+      requireFolder: () => {
+        if (!chosen) throw new Error("No folder chosen");
+        return chosen;
+      },
+    },
+    secrets: { get: (name) => (name === "rentmanToken" ? token : null) },
+    net: {
+      fetchPublic: async (url, options) => {
+        fetches.push({ url, options });
+        const r = respond(url);
+        const body = Buffer.isBuffer(r.body) ? r.body : Buffer.from(r.body ?? "");
+        return { ok: r.status < 300, status: r.status, url, headers: r.headers || {}, body };
+      },
+    },
+  };
+  const choose = () => {
+    fs.mkdirSync(drive, { recursive: true });
+    chosen = drive;
+  };
+  return { ctx, drive, fetches, choose, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+}
+
+test("storage settings: no folder until one is chosen, then the folder layout is created", (t) => {
+  const { ctx, drive, choose, cleanup } = makeCtx();
+  t.after(cleanup);
+  assert.deepStrictEqual(api["storage.getConfig"](ctx), {
+    enabled: true,
+    autoSync: true,
+    lastSync: "",
+    drivePath: "",
+    isAccessible: false,
   });
-const call = (p, method, body, headers) => handle(req(p, method, body, headers), p.split("?")[0], ctx);
-
-test("foreign origin is refused", async () => {
-  const res = await handle(
-    req("/api/storage/config", "GET", undefined, { origin: "https://evil.example" }),
-    "/api/storage/config",
-    ctx,
-  );
-  assert.strictEqual(res.status, 403);
+  choose();
+  const cfg = api["storage.setConfig"](ctx, { enabled: true, autoSync: false, drivePath: "/somewhere/else" });
+  assert.strictEqual(cfg.drivePath, drive, "a path from the page is ignored");
+  assert.strictEqual(cfg.autoSync, false);
+  for (const sub of ["gear-database/photos", "cases", "branding", "exports"]) {
+    assert.ok(fs.existsSync(path.join(drive, sub)), sub);
+  }
 });
 
-test("unknown API falls through", async () => {
-  assert.strictEqual(await call("/api/nope", "GET"), null);
-});
-
-test("config defaults, then saving a drive path creates the folders", async () => {
-  let cfg = await (await call("/api/storage/config", "GET")).json();
-  assert.strictEqual(cfg.drivePath, "");
-  assert.strictEqual(cfg.isAccessible, false);
-
-  const saved = await (await call("/api/storage/config", "POST", { drivePath: drive, enabled: true })).json();
-  assert.strictEqual(saved.isAccessible, true);
-  for (const d of ["gear-database", "cases", "branding", "exports"]) assert.ok(fs.existsSync(path.join(drive, d)), d);
-
-  cfg = await (await call("/api/storage/config", "GET")).json();
-  assert.strictEqual(cfg.drivePath, drive);
-  assert.strictEqual(cfg.isAccessible, true);
-});
-
-test("legacy config from the standalone app is migrated once", async () => {
-  const c2 = { ...ctx, dataDir: path.join(tmp, "data2") };
-  const legacy = path.join(c2.appDataDir, "Content Card Studio");
-  fs.mkdirSync(legacy, { recursive: true });
-  fs.writeFileSync(path.join(legacy, "storage_config.json"), JSON.stringify({ drivePath: "X:\\old", enabled: true }));
-  const res = await handle(req("/api/storage/config"), "/api/storage/config", c2);
-  assert.strictEqual((await res.json()).drivePath, "X:\\old");
-  assert.ok(fs.existsSync(path.join(c2.dataDir, "storage_config.json")));
-});
-
-test("save-database writes the inventory and photo files", async () => {
-  const png = "data:image/png;base64," + Buffer.from("fakepng").toString("base64");
-  const res = await call("/api/storage/save-database", "POST", [{ code: "A/1", name: "Amp", image: png }]);
-  assert.strictEqual((await res.json()).success, true);
+test("saving the gear database writes raster photos only, with safe names", (t) => {
+  const { ctx, drive, choose, cleanup } = makeCtx();
+  t.after(cleanup);
+  assert.throws(() => api["storage.saveDatabase"](ctx, "[]"), /not available/);
+  choose();
+  const items = [
+    { code: "CAB-01", image: "data:image/png;base64," + PNG.toString("base64") },
+    { code: "../../evil", image: "data:image/jpeg;base64," + PNG.toString("base64") },
+    { code: "run", image: "data:image/exe;base64," + PNG.toString("base64") },
+    { code: "vector", image: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" },
+    { code: "CON", image: "data:image/webp;base64," + PNG.toString("base64") },
+  ];
+  api["storage.saveDatabase"](ctx, JSON.stringify(items));
   assert.ok(fs.existsSync(path.join(drive, "gear-database", "gear_inventory.json")));
-  assert.strictEqual(fs.readFileSync(path.join(drive, "gear-database", "photos", "A_1.png"), "utf8"), "fakepng");
+  assert.deepStrictEqual(fs.readdirSync(path.join(drive, "gear-database", "photos")).sort(), [
+    "CAB-01.png",
+    "_CON.webp",
+    "______evil.jpg",
+  ]);
+  assert.throws(() => api["storage.saveDatabase"](ctx, '{"not":"a list"}'), /Invalid gear database/);
 });
 
-test("save-case then sync-all returns the case and the gear list", async () => {
-  await call("/api/storage/save-case", "POST", { title: "Case ../7", items: [] });
-  assert.ok(fs.existsSync(path.join(drive, "cases", "Case____7.json")));
-  const all = await (await call("/api/storage/sync-all", "GET")).json();
-  assert.strictEqual(all.cases.length, 1);
-  assert.strictEqual(all.gearDatabase.length, 1);
+test("cards are saved under a safe file name and read back by syncAll", (t) => {
+  const { ctx, drive, choose, cleanup } = makeCtx();
+  t.after(cleanup);
+  choose();
+  const { fileName } = api["storage.saveCase"](ctx, JSON.stringify({ title: "../Rack 1/2", items: [] }));
+  assert.strictEqual(fileName, "___Rack_1_2.json");
+  assert.ok(fs.existsSync(path.join(drive, "cases", fileName)));
+  const all = api["storage.syncAll"](ctx);
+  assert.deepStrictEqual(all.cases, [{ title: "../Rack 1/2", items: [] }]);
 });
 
-test("download-png keeps the file inside the exports folders", async () => {
-  const b64 = "data:image/png;base64," + Buffer.from("imgbytes").toString("base64");
-  const res = await call("/api/download-png", "POST", { filename: "..\\..\\evil", base64: b64 });
-  assert.strictEqual(res.status, 200);
-  assert.strictEqual(res.headers.get("content-type"), "image/png");
-  assert.strictEqual(Buffer.from(await res.arrayBuffer()).toString(), "imgbytes");
-  assert.ok(fs.existsSync(path.join(ctx.documentsDir, "Content Card Studio", "exports", "evil.png")));
-  assert.ok(fs.existsSync(path.join(drive, "exports", "evil.png")));
-  assert.ok(!fs.existsSync(path.join(tmp, "evil.png")));
+test("exports must be PNG and land in Documents and on the drive", (t) => {
+  const { ctx, drive, choose, cleanup } = makeCtx();
+  t.after(cleanup);
+  choose();
+  assert.throws(
+    () => api["storage.saveExport"](ctx, "x.png", "data:image/png;base64," + Buffer.from("MZ").toString("base64")),
+    /Not a PNG/,
+  );
+  const res = api["storage.saveExport"](ctx, "../card.png", "data:image/png;base64," + PNG.toString("base64"));
+  assert.strictEqual(res.fileName, "___card.png");
+  assert.ok(fs.existsSync(path.join(ctx.documentsDir, "Content Card Studio", "exports", "___card.png")));
+  assert.ok(fs.existsSync(path.join(drive, "exports", "___card.png")));
 });
 
-test("Rentman proxy refuses anything but GET", async () => {
-  const res = await call("/api/rentman?endpoint=/equipment", "POST", {});
-  assert.strictEqual(res.status, 405);
+test("rentman.get only reads allowlisted endpoints from api.rentman.net, with the stored token", async (t) => {
+  const { ctx, fetches, cleanup } = makeCtx({ respond: () => ({ status: 200, body: '{"data":[]}' }) });
+  t.after(cleanup);
+  assert.deepStrictEqual(await api["rentman.get"](ctx, "/equipment?limit=1"), { data: [] });
+  assert.strictEqual(fetches[0].url, "https://api.rentman.net/equipment?limit=1");
+  assert.strictEqual(fetches[0].options.headers.Authorization, "Bearer TEST_TOKEN");
+  for (const bad of ["/contacts", "https://evil.example/equipment", "//evil.example/equipment", "/equipment/1/../2"]) {
+    await assert.rejects(() => api["rentman.get"](ctx, bad), /not allowed/, bad);
+  }
+  assert.strictEqual(fetches.length, 1);
 });
 
-test("the Rentman token is accepted without being written to disk", async () => {
-  const res = await call("/api/rentman-token", "POST", { token: "secret-token-123" });
-  assert.strictEqual((await res.json()).success, true);
-  const files = [];
-  (function walk(d) {
-    for (const e of fs.readdirSync(d, { withFileTypes: true }))
-      e.isDirectory() ? walk(path.join(d, e.name)) : files.push(path.join(d, e.name));
-  })(tmp);
-  for (const f of files) assert.ok(!fs.readFileSync(f).includes("secret-token-123"), f);
-  await call("/api/rentman-token", "POST", { token: "" });
+test("rentman.image sends the token to Rentman only, never to the image host", async (t) => {
+  const { ctx, fetches, cleanup } = makeCtx({
+    respond: (url) =>
+      url.startsWith("https://api.rentman.net/")
+        ? { status: 200, body: JSON.stringify({ data: { url: "https://cdn.example/photo.png" } }) }
+        : { status: 200, body: PNG, headers: { "content-type": "image/png" } },
+  });
+  t.after(cleanup);
+  const img = await api["rentman.image"](ctx, "https://api.rentman.net/files/42");
+  assert.strictEqual(img.type, "image/png");
+  assert.deepStrictEqual(Buffer.from(img.data), PNG);
+  assert.deepStrictEqual(
+    fetches.map((f) => [f.url, !!f.options.headers.Authorization]),
+    [
+      ["https://api.rentman.net/files/42", true],
+      ["https://cdn.example/photo.png", false],
+    ],
+  );
+  await api["rentman.image"](ctx, "https://api.rentman.net/files/42");
+  assert.strictEqual(fetches.length, 2, "served from the cache");
 });
 
-test("Rentman image proxy will not fetch private addresses", async () => {
-  const res = await call("/api/rentman-image?url=" + encodeURIComponent("http://127.0.0.1:8085/"), "GET");
-  assert.strictEqual(res.status, 502);
-  assert.match(await res.text(), /not allowed/);
+test("rentman.image refuses anything that is not an image", async (t) => {
+  const { ctx, cleanup } = makeCtx({
+    respond: () => ({ status: 200, body: "<html>", headers: { "content-type": "text/html" } }),
+  });
+  t.after(cleanup);
+  await assert.rejects(() => api["rentman.image"](ctx, "https://cdn.example/page"), /Not an image/);
+});
+
+test("webshop.fetch returns page text and reports error statuses", async (t) => {
+  const { ctx, fetches, cleanup } = makeCtx({
+    respond: (url) => (url.endsWith("/ok") ? { status: 200, body: "<title>Product</title>" } : { status: 403 }),
+  });
+  t.after(cleanup);
+  assert.strictEqual(await api["webshop.fetch"](ctx, "https://shop.example/ok"), "<title>Product</title>");
+  assert.strictEqual(fetches[0].options.truncate, true);
+  await assert.rejects(() => api["webshop.fetch"](ctx, "https://shop.example/blocked"), /403/);
 });
