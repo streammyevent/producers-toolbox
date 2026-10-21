@@ -1084,6 +1084,12 @@ function renderCard() {
         img.alt = item.content || "photo";
         imgWrap.appendChild(img);
       }
+    } else if (item.noImage) {
+      // Rentman item without a photo or a close database match: say so instead of guessing
+      const missing = document.createElement("div");
+      missing.className = "no-image-placeholder";
+      missing.textContent = "No image";
+      imgWrap.appendChild(missing);
     } else {
       // No photo: leave the cell blank
       tdPhoto.classList.add("no-photo");
@@ -1946,7 +1952,8 @@ function detectCategoryFromName(name) {
 }
 
 function registerOrUpdateGlobalGear(name, imageData, category = null, notify = true) {
-  if (!name || !imageData) return;
+  // No image means nothing to save: never create a photo-less entry or blank out an existing photo
+  if (!name || typeof imageData !== "string" || !imageData.trim()) return;
   const cleanName = name.replace(/\n/g, " ").trim();
   if (!cleanName || cleanName.length < 2) return;
 
@@ -1970,7 +1977,10 @@ function registerOrUpdateGlobalGear(name, imageData, category = null, notify = t
   const cat = category || detectCategoryFromName(cleanName);
 
   if (existingIdx >= 0) {
-    customGearDb[existingIdx].image = imageData;
+    // A built-in placeholder icon never replaces a real photo the user already has
+    const current = customGearDb[existingIdx].image;
+    const hasRealPhoto = typeof current === "string" && current.trim() !== "" && !isOwnIcon(current);
+    if (!(hasRealPhoto && isOwnIcon(imageData))) customGearDb[existingIdx].image = imageData;
     if (!customGearDb[existingIdx].aliases) customGearDb[existingIdx].aliases = [];
     aliases.forEach((a) => {
       if (!customGearDb[existingIdx].aliases.includes(a)) {
@@ -2894,6 +2904,18 @@ function renderModalGearPickerGrid() {
 
     container.appendChild(card);
   });
+}
+
+/** The gear item whose name or alias matches `name` at 90% or more (web/js/name-match.js), else null. */
+function findGearByNameStrict(name) {
+  return NameMatch.findGearByNameStrict(name, getAllGearItems());
+}
+
+/** A Rentman item's own photo, else the photo of a strict (90%+) database match, else "". Never a guess. */
+function resolveRentmanImage(name, rentmanImg) {
+  if (typeof rentmanImg === "string" && rentmanImg.trim()) return rentmanImg;
+  const match = findGearByNameStrict(name);
+  return match && typeof match.image === "string" && match.image.trim() ? match.image : "";
 }
 
 function findGearInDatabase(term) {
@@ -5555,7 +5577,7 @@ function mapRentmanItemToNormalized(item) {
     is_combination: isKit,
     quantity: item.current_quantity || 1,
     category: detectCategoryFromName(itemName),
-    image: imgUrl || item.fallbackIcon || matchIconForDescription(itemName) || AV_ICONS.genericBox,
+    image: item.fallbackIcon || resolveRentmanImage(itemName, imgUrl),
     items: item.items || null,
   };
 }
@@ -5795,7 +5817,7 @@ async function generateCardFromRentman(item) {
             qty: String(d.quantity || "1"),
             name: eqName,
             code: (eq.code || "").trim(),
-            image: eqImg || findGearInDatabase(eqName)?.image || matchIconForDescription(eqName) || AV_ICONS.genericBox,
+            image: resolveRentmanImage(eqName, eqImg),
           };
         });
       }
@@ -5811,7 +5833,7 @@ async function generateCardFromRentman(item) {
         qty: String(item.quantity || "1"),
         name: item.name || "Equipment Item",
         code: item.code || "",
-        image: item.image || matchIconForDescription(item.name || "") || AV_ICONS.genericBox,
+        image: resolveRentmanImage(item.name || "", item.image),
       },
     ];
   }
@@ -5839,7 +5861,8 @@ async function generateCardFromRentman(item) {
       id: String(Date.now()) + "-" + Math.random().toString(36).substr(2, 4),
       qty: String(si.qty || "1"),
       content: contentText,
-      image: si.image || AV_ICONS.genericBox,
+      image: si.image || "",
+      noImage: !si.image,
     };
   });
 
@@ -5887,11 +5910,13 @@ function addRentmanItemToCurrentCard(item) {
   }
 
   if (!currentCard.items) currentCard.items = [];
+  const image = resolveRentmanImage(itemName, item.image);
   currentCard.items.push({
     id: String(Date.now()) + "-" + Math.random().toString(36).substr(2, 4),
     qty: String(item.quantity || "1"),
     content: desc,
-    image: item.image || matchIconForDescription(itemName) || AV_ICONS.genericBox,
+    image,
+    noImage: !image,
   });
 
   saveActiveCardState();
@@ -5911,10 +5936,6 @@ function importRentmanItemToGearDb(item, notify = true) {
   const cat = item.category || detectCategoryFromName(cleanName);
   const aliases = [cleanName.toLowerCase()];
   if (cleanCode) aliases.push(cleanCode.toLowerCase());
-  cleanName.split(/[\s,/-]+/).forEach((w) => {
-    const word = w.trim().toLowerCase();
-    if (word.length >= 3 && !aliases.includes(word)) aliases.push(word);
-  });
 
   const existingIdx = Array.isArray(customGearDb)
     ? customGearDb.findIndex(
@@ -5930,7 +5951,8 @@ function importRentmanItemToGearDb(item, notify = true) {
     code: cleanCode,
     category: cat,
     aliases: aliases,
-    image: item.image || matchIconForDescription(cleanName) || AV_ICONS.genericBox,
+    image:
+      resolveRentmanImage(cleanName, item.image) || (existingIdx >= 0 ? customGearDb[existingIdx].image : "") || "",
     isCustom: true,
     source: "rentman",
   };
@@ -6088,7 +6110,9 @@ function initRentmanModule() {
       const card = document.createElement("div");
       card.className = "rentman-item-card";
 
-      const thumbHtml = imageHtml(item.image, `alt="${escapeHtml(item.name)}" loading="lazy"`) || AV_ICONS.genericBox;
+      const thumbHtml =
+        imageHtml(item.image, `alt="${escapeHtml(item.name)}" loading="lazy"`) ||
+        '<div class="no-image-placeholder">No image</div>';
 
       const isKit = item.is_combination || item.type === "case" || item.type === "set";
       const codeHtml = item.code ? `<span class="rentman-code-tag">${escapeHtml(item.code)}</span>` : "";
@@ -6300,7 +6324,8 @@ function renderRentmanQuickKits() {
     btn.className = "rentman-kit-row";
 
     const thumbHtml =
-      imageHtml(kit.image, 'alt="" style="width:100%; height:100%; object-fit:contain;"') || AV_ICONS.genericBox;
+      imageHtml(kit.image, 'alt="" style="width:100%; height:100%; object-fit:contain;"') ||
+      '<div class="no-image-placeholder">No image</div>';
 
     btn.innerHTML = `
       <div style="display:flex; align-items:center; gap:10px; width:100%;">

@@ -69,12 +69,19 @@ export default defineConfig([
   },
   {
     // Loaded by the page and by the Node tests
-    files: ["tools/quote-pricer/web/calc.js"],
+    files: ["tools/quote-pricer/web/calc.js", "tools/content-card-studio/web/js/name-match.js"],
     languageOptions: { globals: { module: "writable" } },
   },
   {
     files: ["tools/content-card-studio/web/app.js"],
-    languageOptions: { globals: { QRCode: "readonly", html2canvas: "readonly" } },
+    languageOptions: {
+      globals: {
+        QRCode: "readonly",
+        html2canvas: "readonly",
+        // Defined in web/js/name-match.js
+        NameMatch: "readonly",
+      },
+    },
     // ponytail: warnings until this file is split up and cleaned during the move to the tool contract
     rules: {
       "no-unused-vars": ["warn", { vars: "local", caughtErrors: "none" }],
