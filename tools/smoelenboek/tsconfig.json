@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": false,
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["node"]
+  },
+  "include": ["**/*.js", "../../apps/desktop/src/types/toolbox.d.ts"],
+  "exclude": ["tests", "web/vendor", "node_modules", "playwright.config.js"]
+}

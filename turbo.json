@@ -2,11 +2,23 @@
   "$schema": "https://turborepo.com/schema.json",
   "envMode": "loose",
   "tasks": {
-    "typecheck": {},
-    "test": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/desktop/src/main/net-guard.js"]
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["out/**"]
     },
-    "test:e2e": { "cache": false },
-    "start": { "cache": false, "persistent": true }
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["build"]
+    },
+    "test:e2e": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "start": {
+      "cache": false,
+      "persistent": true
+    }
   }
 }

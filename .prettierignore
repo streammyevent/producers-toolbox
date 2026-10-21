@@ -12,7 +12,6 @@ CHANGELOG.md
 *.cmd
 *.ps1
 *.vbs
-apps/desktop/build/
 
 # Hand-written docs stay as written
 *.md

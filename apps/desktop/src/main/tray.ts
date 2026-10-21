@@ -1,4 +1,4 @@
-const { Tray, Menu, nativeImage } = require("electron");
+import { Menu, nativeImage, Tray } from "electron";
 
 // Small red square with a white mark, drawn in code so no icon asset is needed.
 function trayIcon() {
@@ -18,24 +18,19 @@ function trayIcon() {
   return nativeImage.createFromBitmap(buf, { width: size, height: size });
 }
 
-let tray = null;
+let tray: Tray | null = null;
 
-function createTray({ onShow, onQuit }) {
-  if (tray) return tray;
+export function createTray({ onShow, onQuit }: { onShow: () => void; onQuit: () => void }): void {
+  if (tray) return;
   tray = new Tray(trayIcon());
   tray.setToolTip("Producers Toolbox");
   tray.setContextMenu(
     Menu.buildFromTemplate([{ label: "Show", click: onShow }, { type: "separator" }, { label: "Quit", click: onQuit }]),
   );
   tray.on("click", onShow);
-  return tray;
 }
 
-function destroyTray() {
-  if (tray) {
-    tray.destroy();
-    tray = null;
-  }
+export function destroyTray(): void {
+  tray?.destroy();
+  tray = null;
 }
-
-module.exports = { createTray, destroyTray };

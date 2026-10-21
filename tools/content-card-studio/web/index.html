@@ -6,25 +6,8 @@
     <title>Content Card Studio</title>
     <meta name="theme-color" content="#D7263D" />
     <link rel="icon" type="image/png" href="assets/app-icon.png" />
-    <script>
-      // Apply the saved (or system) theme before the first paint
-      (function () {
-        var theme = null;
-        try {
-          theme = localStorage.getItem("ccs_theme");
-        } catch (e) {}
-        if (theme !== "light" && theme !== "dark") {
-          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-        }
-        document.documentElement.setAttribute("data-theme", theme);
-      })();
-    </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
-      rel="stylesheet"
-    />
+    <script src="theme-init.js"></script>
+    <link rel="stylesheet" href="fonts/fonts.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -1322,13 +1305,17 @@
 
           <div class="form-group">
             <label for="storageDrivePathInput">Folder</label>
-            <input
-              type="text"
-              id="storageDrivePathInput"
-              class="mono-input"
-              placeholder="Paste your Shared Drive folder path"
-              value=""
-            />
+            <div class="form-row">
+              <input
+                type="text"
+                id="storageDrivePathInput"
+                class="mono-input flex-1"
+                placeholder="No folder chosen"
+                value=""
+                readonly
+              />
+              <button type="button" id="chooseStorageFolderBtn" class="btn btn-secondary">Choose folder…</button>
+            </div>
           </div>
 
           <div id="storageStatusBox" class="drive-status-box">
@@ -1390,6 +1377,6 @@
     <!-- Scripts (Local Bundles for 100% Offline & Speed) -->
     <script src="vendor/qrcode.min.js"></script>
     <script src="vendor/html2canvas.min.js"></script>
-    <script src="app.js?v=0.7.0"></script>
+    <script src="app.js?v=0.8.0"></script>
   </body>
 </html>

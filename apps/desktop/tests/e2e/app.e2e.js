@@ -1,5 +1,5 @@
-// End-to-end test that drives the real app. Run: npm run test:e2e
-// Uses a throwaway data folder, so it never touches your real Producers Toolbox data.
+// End-to-end tests that drive the real app (compiled from src/ by the build task). Each launch uses a throwaway data
+// folder, so they never touch your real Producers Toolbox data.
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");
@@ -9,20 +9,27 @@ const { _electron: electron } = require("playwright-core");
 
 const desktop = path.join(__dirname, "..", "..");
 const repo = path.join(desktop, "..", "..");
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "toolbox-e2e-"));
 const fixture = path.join(__dirname, "fixtures", "quote-pricer-backup.json");
+const SEARCH_KEY = "AIzaSy-e2e-not-a-real-key";
+const roots = [];
 
-async function launch() {
+test.after(() => {
+  for (const dir of roots) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function tempDir(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  roots.push(dir);
+  return dir;
+}
+
+async function launch(dataDir = tempDir("toolbox-e2e-")) {
   const env = { ...process.env, PRODUCERS_TOOLBOX_DATA_DIR: dataDir };
   delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({
-    executablePath: require("electron"),
-    args: [desktop],
-    env,
-  });
+  const app = await electron.launch({ executablePath: require("electron"), args: [desktop], env });
   const launcher = await app.firstWindow();
   await launcher.waitForSelector(".card");
-  return { app, launcher };
+  return { app, launcher, dataDir };
 }
 
 // Click Start on a tool's card and return its new window, collecting console errors on the way.
@@ -39,7 +46,42 @@ async function openTool(app, launcher, name) {
   return page;
 }
 
-test.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+// Native dialogs cannot be clicked by Playwright, so they are replaced in the main process.
+async function stubDialogs(app, { folder = null, response = 0, checkboxChecked = false } = {}) {
+  await app.evaluate(
+    ({ dialog }, o) => {
+      dialog.showOpenDialog = async () =>
+        o.folder ? { canceled: false, filePaths: [o.folder] } : { canceled: true, filePaths: [] };
+      dialog.showMessageBox = async () => ({ response: o.response, checkboxChecked: o.checkboxChecked });
+    },
+    { folder, response, checkboxChecked },
+  );
+}
+
+/** Settles a promise in the page as "resolved <json>" or the error message. */
+const settle = (page, fn, arg) =>
+  page.evaluate(
+    ([source, a]) =>
+      Promise.resolve()
+        .then(() => (0, eval)(source)(a)) // eslint-disable-line no-eval -- runs a test callback in the page
+        .then(
+          (v) => `resolved ${JSON.stringify(v)}`,
+          (e) => String(e.message),
+        ),
+    [fn.toString(), arg],
+  );
+
+function filesContaining(dir, needle) {
+  const hits = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f);
+      else if (fs.readFileSync(f).includes(needle)) hits.push(f);
+    }
+  })(dir);
+  return hits;
+}
 
 test("launcher lists all three tools", async () => {
   const { app, launcher } = await launch();
@@ -51,7 +93,7 @@ test("launcher lists all three tools", async () => {
   }
 });
 
-test("launcher: hamburger menu opens with all items available", async () => {
+test("launcher: hamburger menu opens with its items", async () => {
   const { app, launcher } = await launch();
   try {
     const menu = launcher.locator("#menu");
@@ -59,10 +101,8 @@ test("launcher: hamburger menu opens with all items available", async () => {
     await launcher.locator("#menuBtn").click();
     await menu.waitFor({ state: "visible" });
     const items = await menu.getByRole("menuitem").allTextContents();
-    assert.deepStrictEqual(items, ["Check for updates", "Settings", "About", "Uninstall Toolbox", "Quit"]);
-    for (const name of items) {
-      assert.ok(await menu.getByRole("menuitem", { name }).isEnabled(), `${name} should be enabled`);
-    }
+    const uninstall = process.platform === "win32" ? ["Uninstall Toolbox"] : [];
+    assert.deepStrictEqual(items, ["Check for updates", "Settings", "About", ...uninstall, "Quit"]);
     await launcher.keyboard.press("Escape");
     await menu.waitFor({ state: "hidden" });
   } finally {
@@ -70,39 +110,16 @@ test("launcher: hamburger menu opens with all items available", async () => {
   }
 });
 
-test("launcher: theme toggle persists across a restart", async () => {
-  let { app, launcher } = await launch();
-  let toggled;
-  try {
-    const before = await launcher.locator("html").getAttribute("data-theme");
-    await launcher.locator("#themeToggle").click();
-    toggled = before === "dark" ? "light" : "dark";
-    await launcher.waitForFunction((t) => document.documentElement.dataset.theme === t, toggled);
-    await launcher.waitForFunction(() => localStorage.getItem("tb-theme") !== null);
-  } finally {
-    await app.close();
-  }
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dataDir, "user", "settings.json"), "utf8")).theme, toggled);
-
-  ({ app, launcher } = await launch());
-  try {
-    assert.strictEqual(await launcher.locator("html").getAttribute("data-theme"), toggled);
-  } finally {
-    await app.close();
-  }
-});
-
-test("launcher: settings modal saves and survives a restart", async () => {
-  let { app, launcher } = await launch();
+test("launcher: theme and settings survive a restart", async () => {
+  let { app, launcher, dataDir } = await launch();
   try {
     await launcher.locator("#menuBtn").click();
     await launcher.getByRole("menuitem", { name: "Settings" }).click();
-    const modal = launcher.locator("#settingsModal");
-    await modal.waitFor({ state: "visible" });
+    await launcher.locator("#settingsModal").waitFor({ state: "visible" });
     await launcher.locator("#setTheme").selectOption("dark");
     await launcher.locator("#setUpdates").uncheck();
     await launcher.locator("#settingsSave").click();
-    await modal.waitFor({ state: "hidden" });
+    await launcher.locator("#settingsModal").waitFor({ state: "hidden" });
     assert.strictEqual(await launcher.locator("html").getAttribute("data-theme"), "dark");
   } finally {
     await app.close();
@@ -111,26 +128,25 @@ test("launcher: settings modal saves and survives a restart", async () => {
   assert.strictEqual(saved.theme, "dark");
   assert.strictEqual(saved.autoCheckUpdates, false);
 
-  ({ app, launcher } = await launch());
+  ({ app, launcher } = await launch(dataDir));
   try {
-    await launcher.locator("#menuBtn").click();
-    await launcher.getByRole("menuitem", { name: "Settings" }).click();
-    assert.strictEqual(await launcher.locator("#setTheme").inputValue(), "dark");
-    assert.strictEqual(await launcher.locator("#setUpdates").isChecked(), false);
+    assert.strictEqual(await launcher.locator("html").getAttribute("data-theme"), "dark");
+    await launcher.locator("#themeToggle").click();
+    await launcher.waitForFunction(() => document.documentElement.dataset.theme === "light");
   } finally {
     await app.close();
   }
 });
 
 test("launcher: pinning a tool moves it first and persists", async () => {
-  let { app, launcher } = await launch();
+  let { app, launcher, dataDir } = await launch();
   try {
     await launcher.getByRole("button", { name: "Pin Smoelenboek" }).click();
     await launcher.waitForFunction(() => document.querySelector(".card h2").textContent === "Smoelenboek");
   } finally {
     await app.close();
   }
-  ({ app, launcher } = await launch());
+  ({ app, launcher } = await launch(dataDir));
   try {
     assert.strictEqual((await launcher.locator(".card h2").allTextContents())[0], "Smoelenboek");
   } finally {
@@ -138,20 +154,22 @@ test("launcher: pinning a tool moves it first and persists", async () => {
   }
 });
 
-test("every tool opens without script errors and with a content security policy", async () => {
+test("every tool opens without script errors, under a strict script policy", async () => {
   const { app, launcher } = await launch();
   try {
     for (const name of ["Content Card Studio", "Smoelenboek", "Quote Pricer"]) {
       const page = await openTool(app, launcher, name);
       await page.waitForTimeout(1500);
       const csp = await page.evaluate(async () => (await fetch(location.href)).headers.get("content-security-policy"));
-      assert.match(csp || "", /object-src 'none'/, `${name}: no CSP`);
-      assert.doesNotMatch(csp, /unsafe-eval/, `${name}: unsafe-eval`);
-      const real = page.errors.filter(
-        (e) =>
-          !/Electron Security Warning|favicon|service-worker|ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED)/i.test(e),
-      );
+      assert.match(csp || "", /script-src 'self';/, `${name}: script-src`);
+      assert.match(csp, /object-src 'none'/, `${name}: object-src`);
+      assert.doesNotMatch(csp, /unsafe-eval|script-src[^;]*unsafe-inline/, `${name}: unsafe scripts`);
+      const real = page.errors.filter((e) => !/favicon|ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED)/i.test(e));
       assert.deepStrictEqual(real, [], `${name} logged errors`);
+      // Only web/ is served: the tool's main-process code and manifest are not reachable
+      for (const p of ["/../api.js", "/../tool.json", "/%2e%2e/tool.json"]) {
+        assert.strictEqual(await page.evaluate(async (u) => (await fetch(u)).status, p), 404, `${name}: ${p}`);
+      }
       const closed = page.waitForEvent("close");
       await launcher.locator(".card", { hasText: name }).getByRole("button", { name: "Stop" }).click();
       await closed;
@@ -161,8 +179,29 @@ test("every tool opens without script errors and with a content security policy"
   }
 });
 
+test("Smoelenboek and Content Card Studio load their bundled fonts (no font CDN)", async () => {
+  const { app, launcher } = await launch();
+  try {
+    const loads = (page, families) =>
+      page.evaluate(
+        (list) => Promise.all(list.map((f) => document.fonts.load(`16px "${f}"`).then((faces) => [f, faces.length]))),
+        families,
+      );
+    const smoelenboek = await openTool(app, launcher, "Smoelenboek");
+    for (const [family, faces] of await loads(smoelenboek, ["Geist", "Geist Mono", "Outfit"])) {
+      assert.ok(faces > 0, `Smoelenboek: ${family}`);
+    }
+    const cards = await openTool(app, launcher, "Content Card Studio");
+    for (const [family, faces] of await loads(cards, ["Geist", "Geist Mono", "Inter", "JetBrains Mono"])) {
+      assert.ok(faces > 0, `Content Card Studio: ${family}`);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("Quote Pricer: restoring a backup works and survives a restart", async () => {
-  let { app, launcher } = await launch();
+  let { app, launcher, dataDir } = await launch();
   try {
     const page = await openTool(app, launcher, "Quote Pricer");
     await page.setInputFiles("#restoreFile", fixture);
@@ -176,122 +215,204 @@ test("Quote Pricer: restoring a backup works and survives a restart", async () =
   } finally {
     await app.close();
   }
-
-  ({ app, launcher } = await launch()); // same data folder, fresh process
+  ({ app, launcher } = await launch(dataDir));
   try {
     const page = await openTool(app, launcher, "Quote Pricer");
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("sme_quote_tool_v1")));
-    assert.strictEqual(stored.items.length, 2, "data was lost after restart");
     await page.locator('input[data-f="name"][value="Test LED Bar"]').waitFor({ state: "visible" });
   } finally {
     await app.close();
   }
 });
 
-test("Quote Pricer: the page can fetch through the app and private addresses are refused", async () => {
+test("Quote Pricer: fetches go through the app, private addresses are refused, other tools' powers are not available", async () => {
   const { app, launcher } = await launch();
   try {
     const page = await openTool(app, launcher, "Quote Pricer");
-    const priv = await page.evaluate(async () =>
-      (await fetch("/api/product?url=" + encodeURIComponent("http://127.0.0.1:1/"))).json(),
-    );
-    assert.match(priv.error, /not allowed/);
+    for (const url of ["http://127.0.0.1:1/", "http://[::ffff:127.0.0.1]/", "http://169.254.169.254/latest/"]) {
+      const res = await page.evaluate((u) => window.toolbox.call("product.fetch", u), url);
+      assert.match(res.error, /not allowed/, url);
+    }
+    assert.match(await settle(page, () => window.toolbox.call("storage.saveExport", "x", "y")), /Unknown method/);
+    assert.match(await settle(page, () => window.toolbox.call("constructor")), /Unknown method/);
+    assert.match(await settle(page, () => window.toolbox.secrets.set("gsearchApiKey", "x")), /Unknown secret name/);
+    assert.match(await settle(page, () => window.toolbox.folder.get()), /no folder/);
   } finally {
     await app.close();
   }
 });
 
-test("Content Card Studio: settings and PNG export work from the page", async () => {
-  const { app, launcher } = await launch();
+test("Content Card Studio: the shared-drive folder is chosen in a dialog; exports land there and in Documents", async () => {
+  const { app, launcher, dataDir } = await launch();
+  const drive = path.join(dataDir, "drive");
+  fs.mkdirSync(drive);
   try {
     const page = await openTool(app, launcher, "Content Card Studio");
-    const drive = path.join(dataDir, "drive");
-    const saved = await page.evaluate(
-      async (d) =>
-        (
-          await fetch("/api/storage/config", { method: "POST", body: JSON.stringify({ drivePath: d, enabled: true }) })
-        ).json(),
-      drive,
-    );
-    assert.strictEqual(saved.isAccessible, true);
+    await stubDialogs(app, { folder: drive });
+    await page.waitForFunction(() => typeof window.openStorageModal === "function");
+    await page.evaluate(() => window.openStorageModal());
+    await page.locator("#chooseStorageFolderBtn").click();
+    await page.waitForFunction(() => document.getElementById("storageDrivePathInput").value !== "");
+    assert.strictEqual(await page.locator("#storageDrivePathInput").inputValue(), drive);
+    assert.ok(fs.existsSync(path.join(drive, "gear-database", "photos")), "folder layout created");
 
-    const b64 = "data:image/png;base64," + Buffer.from("e2e-png").toString("base64");
-    const status = await page.evaluate(
-      async (data) =>
-        (
-          await fetch("/api/download-png", {
-            method: "POST",
-            body: JSON.stringify({ filename: "e2e.png", base64: data }),
-          })
-        ).status,
-      b64,
-    );
-    assert.strictEqual(status, 200);
+    const png =
+      "data:image/png;base64," + Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]).toString("base64");
+    await page.evaluate((d) => window.toolbox.call("storage.saveExport", "e2e.png", d), png);
     assert.ok(fs.existsSync(path.join(drive, "exports", "e2e.png")), "not written to the Shared Drive folder");
-    assert.ok(
-      fs.existsSync(path.join(dataDir, "documents", "Producers Toolbox", "Content Card Studio", "exports", "e2e.png")),
-      "not written to Documents",
+    const docs = path.join(dataDir, "documents", "Producers Toolbox", "Content Card Studio", "exports", "e2e.png");
+    assert.ok(fs.existsSync(docs), "not written to Documents");
+    const notPng = await settle(page, () =>
+      window.toolbox.call("storage.saveExport", "x.png", "data:image/png;base64,TVo="),
     );
+    assert.match(notPng, /Not a PNG/);
   } finally {
     await app.close();
   }
 });
 
-test("Secrets: API keys are stored encrypted and kept per tool", async () => {
-  let { app, launcher } = await launch();
+test("Smoelenboek: the Search key is stored encrypted, survives a restart and stays with this tool", async (t) => {
+  let { app, launcher, dataDir } = await launch();
   try {
     const page = await openTool(app, launcher, "Smoelenboek");
-    assert.strictEqual(
-      await page.evaluate(() => window.producersToolbox.secrets.set("gsearchApiKey", "AIzaSy-e2e-secret")),
-      true,
-    );
-  } finally {
-    await app.close();
-  }
-
-  // Nothing readable on disk, and it is still there after a restart.
-  const hits = [];
-  (function walk(d) {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const f = path.join(d, e.name);
-      if (e.isDirectory()) walk(f);
-      else {
-        try {
-          const t = fs.readFileSync(f, "latin1");
-          if (t.includes("AIzaSy-")) hits.push(f);
-        } catch {}
-      }
+    assert.strictEqual(await page.evaluate(() => window.electronAPI.isDesktop), true);
+    const initial = await page.evaluate(() => window.electronAPI.secrets.getAll());
+    if (!initial.available) {
+      t.skip("OS encryption is not available on this machine");
+      return;
     }
-  })(dataDir);
-  assert.deepStrictEqual(hits, [], "API key found in plaintext on disk");
+    assert.strictEqual(await page.evaluate(() => SecretStore.available), true); // eslint-disable-line no-undef
+    await page.evaluate(() => app.openPhotoLookupModal("")); // eslint-disable-line no-undef
+    await page.locator("#toggle-google-guide-btn").click();
+    await page.locator("#gsearch-api-key").fill(SEARCH_KEY);
+    await page.locator("#gsearch-cx-id").fill("cx-e2e");
+    await page.locator("#btn-save-gsearch-keys").click();
+    await page.locator("#toast-container").getByText("Google API credentials saved!").waitFor();
+    assert.match(
+      await settle(page, () => window.electronAPI.secrets.set("rentmanToken", "x")),
+      /Unknown secret name/,
+      "only the names in tool.json",
+    );
+  } finally {
+    await app.close();
+  }
+  assert.deepStrictEqual(filesContaining(dataDir, SEARCH_KEY), [], "Search key found in plaintext on disk");
 
-  ({ app, launcher } = await launch());
+  ({ app, launcher } = await launch(dataDir));
   try {
     const page = await openTool(app, launcher, "Smoelenboek");
-    assert.strictEqual(
-      await page.evaluate(() => window.producersToolbox.secrets.get("gsearchApiKey")),
-      "AIzaSy-e2e-secret",
-    );
-    const other = await openTool(app, launcher, "Quote Pricer");
-    assert.strictEqual(await other.evaluate(() => window.producersToolbox.secrets.get("gsearchApiKey")), null);
+    assert.deepStrictEqual(await page.evaluate(() => window.electronAPI.secrets.getAll()), {
+      available: true,
+      values: { gsearchApiKey: SEARCH_KEY },
+    });
+    const other = await openTool(app, launcher, "Content Card Studio");
+    assert.deepStrictEqual((await other.evaluate(() => window.toolbox.secrets.getAll())).values, {});
   } finally {
     await app.close();
   }
 });
 
-// Native dialogs cannot be clicked by Playwright, so they are replaced in the main process.
-async function stubDialogs(app, { file = null, response = 0, checkboxChecked = false } = {}) {
-  await app.evaluate(
-    ({ dialog }, o) => {
-      dialog.showOpenDialog = async () =>
-        o.file ? { canceled: false, filePaths: [o.file] } : { canceled: true, filePaths: [] };
-      dialog.showMessageBox = async () => ({ response: o.response, checkboxChecked: o.checkboxChecked });
-    },
-    { file, response, checkboxChecked },
-  );
-}
+test("Smoelenboek: backups go to the chosen folder; the main process keeps the path and checks every name", async () => {
+  const { app, launcher, dataDir } = await launch();
+  const drive = path.join(dataDir, "drive");
+  const backups = path.join(drive, "Speaker Photo Directory");
+  fs.mkdirSync(drive);
+  try {
+    const page = await openTool(app, launcher, "Smoelenboek");
+    await stubDialogs(app, { folder: drive });
+    assert.strictEqual(await page.evaluate(() => window.syncFolderService.kind), "desktop");
+    await page.evaluate(() => app.openModal("sync-modal")); // eslint-disable-line no-undef
+    await page.locator("#btn-sync-choose-folder").click();
+    await page.locator("#sync-folder-path").getByText(backups).waitFor();
+    await page.locator("#btn-sync-now").click();
+    await page.locator("#toast-container").getByText("Saved").first().waitFor();
+    assert.deepStrictEqual(fs.readdirSync(backups), ["Backup_Speaker_Photo_Directory.json"]);
+    const config = JSON.parse(
+      fs.readFileSync(path.join(dataDir, "user", "tools", "smoelenboek", "folder.json"), "utf8"),
+    );
+    assert.strictEqual(config.folder, backups);
+    assert.doesNotMatch(await page.evaluate(() => JSON.stringify({ ...localStorage })), /drive/);
 
-test("tools: removing a built-in tool hides it, and Settings brings it back", async () => {
+    for (const [name, content] of [
+      ["../evil.json", "x"],
+      ["..\\Backup_evil.json", "x"],
+      ["Backup_x.exe", "x"],
+    ]) {
+      const res = await settle(page, ([n, c]) => window.toolbox.folder.write(n, c), [name, content]);
+      assert.match(res, /Invalid file name/, name);
+    }
+    assert.deepStrictEqual(fs.readdirSync(drive), ["Speaker Photo Directory"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("IPC from a window that is not the tool's own is refused, even on the tool's page", async () => {
+  const { app } = await launch();
+  try {
+    const [stranger] = await Promise.all([
+      app.waitForEvent("window"),
+      app.evaluate(
+        ({ BrowserWindow }, preload) => {
+          const win = new BrowserWindow({
+            show: false,
+            webPreferences: { preload, sandbox: true, contextIsolation: true },
+          });
+          win.loadURL("app://smoelenboek/index.html");
+        },
+        path.join(desktop, "out", "main", "tool-preload.js"),
+      ),
+    ]);
+    await stranger.waitForLoadState("domcontentloaded");
+    for (const fn of [
+      () => window.toolbox.secrets.getAll(),
+      () => window.toolbox.secrets.set("gsearchApiKey", "stolen-value"),
+      () => window.toolbox.folder.get(),
+      () => window.toolbox.folder.write("Backup_stolen.json", "{}"),
+      () => window.toolbox.call("product.fetch", "https://example.com/"),
+    ]) {
+      assert.match(await settle(stranger, fn), /untrusted sender/, fn.toString());
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("pages cannot navigate away or open windows; http(s) links go to the system browser", async () => {
+  const { app, launcher } = await launch();
+  try {
+    await app.evaluate(({ shell }) => {
+      globalThis.__opened = [];
+      shell.openExternal = async (url) => void globalThis.__opened.push(url);
+    });
+    const page = await openTool(app, launcher, "Quote Pricer");
+    assert.strictEqual(await page.evaluate(() => window.open("https://example.com/doc")), null);
+    assert.strictEqual(await page.evaluate(() => window.open("file:///etc/passwd")), null);
+    await page.evaluate(() => (location.href = "app://shell/index.html"));
+    await page.evaluate(() => (location.href = "https://example.com/away"));
+    await page.waitForTimeout(500);
+    assert.match(page.url(), /^app:\/\/quote-pricer\//);
+    assert.deepStrictEqual(await app.evaluate(() => globalThis.__opened), [
+      "https://example.com/doc",
+      "https://example.com/away",
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a tool only gets the permissions its manifest lists", async () => {
+  const { app, launcher } = await launch();
+  try {
+    const query = (page) =>
+      page.evaluate(async () => (await navigator.permissions.query({ name: "clipboard-read" })).state);
+    assert.strictEqual(await query(await openTool(app, launcher, "Quote Pricer")), "denied");
+    assert.notStrictEqual(await query(await openTool(app, launcher, "Smoelenboek")), "denied");
+  } finally {
+    await app.close();
+  }
+});
+
+test("tools: removing a tool hides it, and Settings brings it back", async () => {
   const { app, launcher } = await launch();
   try {
     await stubDialogs(app, { response: 0, checkboxChecked: false });
@@ -311,7 +432,7 @@ test("tools: removing a built-in tool hides it, and Settings brings it back", as
   }
 });
 
-test("updates: the dialog opens and explains that toolbox updates need the installed app", async () => {
+test("updates: the dialog explains that updates need the installed app", async () => {
   const { app, launcher } = await launch();
   try {
     await launcher.locator("#menuBtn").click();

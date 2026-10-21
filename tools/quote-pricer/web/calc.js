@@ -1,4 +1,6 @@
-/* Pure pricing helpers for the quotation tool. All prices are ex BTW (Rentman adds BTW itself).
+// @ts-check
+/* Pure pricing helpers for the quotation tool, and the validator for stored data. All prices are ex BTW (Rentman
+   adds BTW itself).
    Works in the browser (window.QuoteCalc) and in Node (module.exports) so tests can load it. */
 (function (root) {
   "use strict";
@@ -245,7 +247,78 @@
     return out;
   }
 
+  // ---- Stored data and backups ----
+  // Everything read from localStorage or a backup file goes through normalizeState: known fields only, numbers as
+  // numbers, ids that are safe to put in HTML attributes. Returns null when it is not Quote Pricer data at all.
+  var ID_RE = /^[a-z][a-z0-9]{1,40}$/i;
+  var LINE_TYPES = ["group", "item", "custom"];
+
+  function isObj(v) {
+    return !!v && typeof v === "object" && !Array.isArray(v);
+  }
+  function str(v, max) {
+    if (typeof v === "number" && isFinite(v)) return String(v);
+    return typeof v === "string" ? v.slice(0, max) : "";
+  }
+  function num(v) {
+    if (typeof v === "number") return isFinite(v) ? v : null;
+    if (typeof v === "string" && v.trim() !== "" && isFinite(Number(v))) return Number(v);
+    return null;
+  }
+
+  function normalizeState(raw, makeId) {
+    if (!isObj(raw) || !Array.isArray(raw.items) || !Array.isArray(raw.quotes)) return null;
+    var taken = {};
+    function idFor(id, prefix) {
+      var next = typeof id === "string" && ID_RE.test(id) && !taken[id] ? id : prefix + makeId();
+      taken[next] = true;
+      return next;
+    }
+    var items = raw.items.filter(isObj).map(function (i) {
+      return {
+        id: idFor(i.id, ""),
+        name: str(i.name, 300),
+        buyPrice: num(i.buyPrice),
+        buyIncl: i.buyIncl === true,
+        vat: num(i.vat),
+        margin: num(i.margin),
+        extOverride: num(i.extOverride),
+        link: str(i.link, 2000),
+      };
+    });
+    var quotes = raw.quotes.filter(isObj).map(function (q) {
+      return {
+        id: idFor(q.id, "q"),
+        name: str(q.name, 300),
+        client: str(q.client, 300),
+        date: str(q.date, 10),
+        lines: (Array.isArray(q.lines) ? q.lines : [])
+          .filter(function (l) {
+            return isObj(l) && LINE_TYPES.indexOf(l.type) >= 0;
+          })
+          .map(function (l) {
+            if (l.type === "group") return { type: "group", title: str(l.title, 300) };
+            if (l.type === "custom") {
+              return {
+                type: "custom",
+                name: str(l.name, 300),
+                qty: num(l.qty),
+                price: num(l.price),
+                cost: num(l.cost),
+              };
+            }
+            return { type: "item", itemId: str(l.itemId, 60), qty: num(l.qty), margin: num(l.margin) };
+          }),
+      };
+    });
+    var active = quotes.filter(function (q) {
+      return q.id === raw.activeQuote;
+    })[0];
+    return { items: items, quotes: quotes, activeQuote: active ? active.id : null };
+  }
+
   var api = {
+    normalizeState: normalizeState,
     round2: round2,
     parseEuro: parseEuro,
     parsePct: parsePct,
@@ -259,5 +332,5 @@
     itemsFromCSV: itemsFromCSV,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-  else root.QuoteCalc = api;
+  else /** @type {any} */ (root).QuoteCalc = api;
 })(typeof window !== "undefined" ? window : this);

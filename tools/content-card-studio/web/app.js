@@ -2,10 +2,9 @@
  * Content Card Studio - Application Logic
  */
 
-// Rentman token hygiene: the API token lives only in this browser (localStorage)
-// and reaches the image proxy through the app (see syncRentmanTokenCookie). It must never be embedded
-// in image URLs, because those URLs are stored in cards and the gear database
-// and synced to the Shared Drive.
+// Rentman token hygiene: the API token lives in the app's encrypted store and only the app's main process uses it.
+// It must never be embedded in image URLs, because those URLs are stored in cards and the gear database and synced
+// to the Shared Drive.
 function scrubRentmanTokens(jsonText) {
   if (typeof jsonText !== "string" || jsonText.indexOf("token=") === -1) return jsonText;
   return jsonText.replace(/\/api\/rentman-image\?([^"\\\s]*)/g, (match, query) => {
@@ -14,11 +13,36 @@ function scrubRentmanTokens(jsonText) {
   });
 }
 
-// Producers Toolbox: app:// pages have no cookies, so the token is handed to the app's
-// main process instead (kept in memory only) and the image proxy reads it from there.
-function syncRentmanTokenCookie(token) {
-  fetch("/api/rentman-token", { method: "POST", body: JSON.stringify({ token: token || "" }) }).catch(() => {});
+// The Producers Toolbox app (window.toolbox) does what this page cannot do itself: files on the Shared Drive,
+// Rentman and reading other sites. See api.js.
+function appCall(method, ...args) {
+  if (!window.toolbox) return Promise.reject(new Error("This needs the Producers Toolbox app."));
+  return window.toolbox.call(method, ...args);
 }
+
+// Rentman photos are stored as "/api/rentman-image?url=..." (no token in the URL). Such an image cannot load on its
+// own: when it fails, fetch it through the app and show it as a blob, which also keeps PNG export working.
+const rentmanImages = new Map(); // url -> Promise<blob URL>
+document.addEventListener(
+  "error",
+  (event) => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement) || img.dataset.rentmanTried) return;
+    const src = img.getAttribute("src") || "";
+    if (!src.startsWith("/api/rentman-image?")) return;
+    img.dataset.rentmanTried = "1";
+    const url = new URLSearchParams(src.slice(src.indexOf("?") + 1)).get("url");
+    if (!url) return;
+    let blobUrl = rentmanImages.get(url);
+    if (!blobUrl) {
+      blobUrl = appCall("rentman.image", url).then((r) => URL.createObjectURL(new Blob([r.data], { type: r.type })));
+      rentmanImages.set(url, blobUrl);
+      blobUrl.catch(() => rentmanImages.delete(url));
+    }
+    blobUrl.then((u) => (img.src = u)).catch(() => {});
+  },
+  true,
+);
 
 // One-time cleanup of tokens stored in local data by versions <= 0.6
 (function scrubStoredRentmanTokens() {
@@ -29,9 +53,6 @@ function syncRentmanTokenCookie(token) {
       if (raw && clean !== raw) localStorage.setItem(key, clean);
     } catch (e) {}
   });
-  try {
-    syncRentmanTokenCookie(localStorage.getItem("rentman_api_token") || "");
-  } catch (e) {}
 })();
 
 // Global Utility: Escape HTML
@@ -43,6 +64,40 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// Card and gear images come from the gear database, Rentman, webshops, imports and the shared drive, so they are
+// untrusted. Inline SVG markup is only inserted for the app's own AV_ICONS; any other image becomes an <img> URL
+// (an SVG there cannot run script).
+let ownIcons = null;
+function isOwnIcon(src) {
+  ownIcons = ownIcons || new Set(Object.values(AV_ICONS));
+  return ownIcons.has(src);
+}
+
+/** A URL that is safe in an <img src>, or "" when the value is not an image. */
+function safeImageSrc(src) {
+  if (typeof src !== "string") return "";
+  let s = src.trim();
+  if (/^&lt;svg[\s>]/i.test(s)) {
+    s = s
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, "&");
+  }
+  if (/^<svg[\s>]/i.test(s)) return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s);
+  if (/^(https?:|blob:)/i.test(s)) return s;
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,]/i.test(s)) return s;
+  if (/^(\/api\/rentman-image\?|assets\/)/.test(s)) return s;
+  return "";
+}
+
+/** HTML for an image: the app's own icon as inline SVG, anything else as an escaped <img>. */
+function imageHtml(src, attrs = 'alt=""') {
+  if (isOwnIcon(src)) return src;
+  const url = safeImageSrc(src);
+  return url ? `<img src="${escapeHtml(url)}" ${attrs}>` : "";
 }
 
 // --- BUILT-IN AV EQUIPMENT SVG ICONS / ILLUSTRATIONS ---
@@ -1021,11 +1076,11 @@ function renderCard() {
     const imgWrap = document.createElement("div");
     imgWrap.className = "cell-img-wrap";
     if (item.image) {
-      if (item.image.startsWith("<svg") || item.image.startsWith("&lt;svg")) {
+      if (isOwnIcon(item.image)) {
         imgWrap.innerHTML = item.image;
       } else {
         const img = document.createElement("img");
-        img.src = item.image;
+        img.src = safeImageSrc(item.image);
         img.alt = item.content || "photo";
         imgWrap.appendChild(img);
       }
@@ -1158,13 +1213,7 @@ function renderSidebar() {
     itemCard.dataset.index = index;
 
     let thumbHtml = `<span class="upload-icon-placeholder" aria-hidden="true">+</span>`;
-    if (item.image) {
-      if (item.image.startsWith("<svg") || item.image.startsWith("&lt;svg")) {
-        thumbHtml = item.image;
-      } else {
-        thumbHtml = `<img src="${item.image}" alt="thumb">`;
-      }
-    }
+    if (item.image) thumbHtml = imageHtml(item.image, 'alt="thumb"') || thumbHtml;
 
     itemCard.innerHTML = `
       <div class="item-drag-handle" title="Drag to reorder"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg></div>
@@ -1764,7 +1813,7 @@ function renderFooterLogo() {
     typeof logoType === "string" &&
     (logoType.startsWith("data:image") || logoType.startsWith("http") || logoType.startsWith("blob:"))
   ) {
-    logoDisplay.innerHTML = `<img src="${logoType}" class="footer-logo-img">`;
+    logoDisplay.innerHTML = imageHtml(logoType, 'alt="" class="footer-logo-img"');
   }
 }
 
@@ -2128,8 +2177,10 @@ function initGearDatabaseModule() {
       }
       openPhotoEditor(currentEditingGearPhoto, "Adjust & Crop Equipment Photo", (newPhotoData) => {
         currentEditingGearPhoto = newPhotoData;
-        document.getElementById("newGearPhotoPreview").innerHTML =
-          `<img src="${newPhotoData}" style="width:100%; height:100%; object-fit:contain;">`;
+        document.getElementById("newGearPhotoPreview").innerHTML = imageHtml(
+          newPhotoData,
+          'alt="" style="width:100%; height:100%; object-fit:contain;"',
+        );
       });
     });
   }
@@ -2297,10 +2348,7 @@ function openPhotoEditor(imageSource, modalTitle, onApplyCallback) {
   const titleEl = document.getElementById("photoEditorModalTitle");
   if (titleEl) titleEl.innerText = modalTitle || "Adjust, Crop & Rotate Photo";
 
-  let srcUrl = imageSource;
-  if (imageSource.startsWith("<svg") || imageSource.startsWith("&lt;svg")) {
-    srcUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(imageSource);
-  }
+  const srcUrl = safeImageSrc(imageSource);
 
   const img = new Image();
   img.crossOrigin = "anonymous";
@@ -2615,16 +2663,9 @@ function openEditGearModal(item) {
   document.getElementById("newGearAliases").value = item.aliases ? item.aliases.join(", ") : "";
   currentEditingGearPhoto = item.image;
 
-  let imgHtml = "";
-  if (item.image) {
-    if (item.image.startsWith("<svg") || item.image.startsWith("&lt;svg")) {
-      imgHtml = item.image;
-    } else {
-      imgHtml = `<img src="${item.image}" style="width:100%; height:100%; object-fit:contain;">`;
-    }
-  } else {
-    imgHtml = `<span style="font-size:0.7rem; color:var(--text-muted);">No photo</span>`;
-  }
+  const imgHtml =
+    imageHtml(item.image, 'alt="" style="width:100%; height:100%; object-fit:contain;"') ||
+    `<span style="font-size:0.7rem; color:var(--text-muted);">No photo</span>`;
   document.getElementById("newGearPhotoPreview").innerHTML = imgHtml;
   document.getElementById("deleteGearBtn").classList.remove("hidden");
   document.getElementById("addGearModal").classList.remove("hidden");
@@ -2670,16 +2711,7 @@ function renderGearDbTabList() {
     const card = document.createElement("div");
     card.className = "gear-tile";
 
-    let imgHtml = "";
-    if (item.image && typeof item.image === "string") {
-      if (item.image.startsWith("<svg") || item.image.startsWith("&lt;svg")) {
-        imgHtml = item.image;
-      } else {
-        imgHtml = `<img src="${item.image}" alt="">`;
-      }
-    } else {
-      imgHtml = AV_ICONS.genericBox;
-    }
+    const imgHtml = imageHtml(item.image) || AV_ICONS.genericBox;
 
     card.innerHTML = `
       <div class="gear-tile-photo card-add-trigger" title="Add to card">${imgHtml}</div>
@@ -2747,8 +2779,10 @@ function setGearPhotoFromFile(file) {
   const reader = new FileReader();
   reader.onload = async (ev) => {
     currentEditingGearPhoto = await downscaleImageDataUrl(ev.target.result, file.type);
-    document.getElementById("newGearPhotoPreview").innerHTML =
-      `<img src="${currentEditingGearPhoto}" style="width:100%; height:100%; object-fit:contain;">`;
+    document.getElementById("newGearPhotoPreview").innerHTML = imageHtml(
+      currentEditingGearPhoto,
+      'alt="" style="width:100%; height:100%; object-fit:contain;"',
+    );
   };
   reader.readAsDataURL(file);
 }
@@ -2837,16 +2871,7 @@ function renderModalGearPickerGrid() {
     card.type = "button";
     card.className = "gear-tile";
 
-    let imgHtml = "";
-    if (item.image && typeof item.image === "string") {
-      if (item.image.startsWith("<svg") || item.image.startsWith("&lt;svg")) {
-        imgHtml = item.image;
-      } else {
-        imgHtml = `<img src="${item.image}" alt="">`;
-      }
-    } else {
-      imgHtml = AV_ICONS.genericBox;
-    }
+    const imgHtml = imageHtml(item.image) || AV_ICONS.genericBox;
 
     card.innerHTML = `
       <span class="gear-tile-photo">${imgHtml}</span>
@@ -3036,60 +3061,25 @@ async function fetchProductFromUrl(url) {
     let htmlText = "";
     let fetched = false;
 
-    // 1. Try local proxy server first
+    // 1. The page itself, fetched by the app (public addresses only)
     try {
-      const localProxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
-      const res = await fetch(localProxyUrl, {
-        headers: { Accept: "text/html,application/xhtml+xml,application/json" },
-      });
-      if (res.ok) {
-        htmlText = await res.text();
-        if (htmlText && htmlText.length > 200) {
-          fetched = true;
-        }
-      }
+      htmlText = await appCall("webshop.fetch", url);
+      fetched = htmlText.length > 200;
     } catch (e) {
-      console.warn("Local proxy fetch error:", e);
+      console.warn("Page fetch error:", e);
     }
 
-    // 2. If Shopify store, try .json endpoint
+    // 2. Shopify stores have a JSON version of each product page
     if (!fetched && url.includes("/products/")) {
       try {
         const cleanProductUrl = url.split("?")[0].replace(/\/en-[A-Za-z]{2}/, "") + ".js";
-        const shopifyRes = await fetch(cleanProductUrl);
-        if (shopifyRes.ok) {
-          const shopifyData = await shopifyRes.json();
-          if (shopifyData && shopifyData.title) {
-            parseAndDisplayExtractedContent(shopifyData.title, shopifyData.description || shopifyData.body_html || "");
-            return;
-          }
+        const shopifyData = JSON.parse(await appCall("webshop.fetch", cleanProductUrl));
+        if (shopifyData && shopifyData.title) {
+          parseAndDisplayExtractedContent(shopifyData.title, shopifyData.description || shopifyData.body_html || "");
+          return;
         }
       } catch (e) {
         console.warn("Shopify JSON fetch error:", e);
-      }
-    }
-
-    // 3. Try external CORS proxies
-    if (!fetched) {
-      const corsProxies = [
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      ];
-
-      for (const p of corsProxies) {
-        try {
-          const res = await fetch(p, { headers: { Accept: "text/html,application/xhtml+xml" } });
-          if (res.ok) {
-            const txt = await res.text();
-            if (txt && txt.length > 300) {
-              htmlText = txt;
-              fetched = true;
-              break;
-            }
-          }
-        } catch (e) {
-          // continue to next proxy
-        }
       }
     }
 
@@ -3287,7 +3277,7 @@ function parseAndDisplayExtractedContent(title, rawText) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><input type="checkbox" class="extracted-item-check" data-idx="${idx}" checked aria-label="Include this item"></td>
-      <td><div style="width:40px; height:40px; border-radius:8px; background:#fff; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; color:#1d1d1f">${item.image}</div></td>
+      <td><div style="width:40px; height:40px; border-radius:8px; background:#fff; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; color:#1d1d1f">${imageHtml(item.image)}</div></td>
       <td><input type="text" value="${escapeHtml(item.qty)}" class="ext-qty-input" aria-label="Quantity" style="text-align:center; font-family:var(--font-mono)"></td>
       <td><input type="text" value="${escapeHtml(item.content.replace(/\n/g, " "))}" class="ext-desc-input" aria-label="Description"></td>
     `;
@@ -4093,7 +4083,7 @@ function renderBatchCardList() {
       <input type="checkbox" class="batch-card-check" ${index === -1 ? "checked" : ""}>
       <span class="batch-card-info">
         <span class="batch-card-title">${escapeHtml(card.title || "Untitled")}${card.subtitle ? " — " + escapeHtml(card.subtitle) : ""}</span>
-        <span class="batch-card-meta">${label} · ${size.w} × ${size.h} mm · ${(card.items || []).length} items</span>
+        <span class="batch-card-meta">${label} · ${escapeHtml(size.w)} × ${escapeHtml(size.h)} mm · ${(card.items || []).length} items</span>
       </span>
       <input type="number" class="batch-card-copies" min="1" max="50" value="1" title="Copies">
     `;
@@ -4244,54 +4234,22 @@ async function exportCardAsImage() {
 
     const dataUrl = canvas.toDataURL("image/png");
 
-    // 1. Post to local server for native binary stream download with Content-Disposition
-    try {
-      const res = await fetch("/api/download-png", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: safeFilename,
-          base64: dataUrl,
-        }),
-      });
-
-      if (res.ok) {
-        const binBlob = await res.blob();
-        const pngBlob = new Blob([binBlob], { type: "image/png" });
-        const blobUrl = window.URL.createObjectURL(pngBlob);
-
-        const a = document.createElement("a");
-        a.style.display = "none";
-        a.href = blobUrl;
-        a.download = safeFilename;
-        document.body.appendChild(a);
-        a.click();
-
-        setTimeout(() => {
-          if (a.parentNode) a.parentNode.removeChild(a);
-          window.URL.revokeObjectURL(blobUrl);
-        }, 1500);
-      } else {
-        throw new Error("Server download stream not ready");
-      }
-    } catch (e) {
-      // Fallback: direct blob anchor
-      canvas.toBlob((b) => {
-        if (b) {
-          const u = URL.createObjectURL(b);
-          const a = document.createElement("a");
-          a.style.display = "none";
-          a.href = u;
-          a.download = safeFilename;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => {
-            if (a.parentNode) a.parentNode.removeChild(a);
-            URL.revokeObjectURL(u);
-          }, 1500);
-        }
-      }, "image/png");
-    }
+    // The download (the app asks where to save it), plus a copy in Documents and on the Shared Drive
+    canvas.toBlob((b) => {
+      if (!b) return;
+      const u = URL.createObjectURL(b);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = u;
+      a.download = safeFilename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(u);
+      }, 1500);
+    }, "image/png");
+    appCall("storage.saveExport", safeFilename, dataUrl).catch((e) => console.warn("Export copy:", e));
 
     if (exportBtn) {
       exportBtn.innerHTML = `✓ Exported!`;
@@ -4302,18 +4260,6 @@ async function exportCardAsImage() {
     }
 
     showToastNotification(`🖼️ Exported "${safeFilename}"`, "🖼️");
-
-    // Auto-save PNG directly into Google Shared Drive /exports/ folder
-    if (storageConfig && storageConfig.enabled) {
-      fetch("/api/storage/save-export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: safeFilename.replace(".png", ""),
-          base64: dataUrl,
-        }),
-      }).catch((e) => console.warn("Shared drive export save:", e));
-    }
   } catch (err) {
     // Restore transform and margin guide on error too
     if (scaler && origTransform !== null) scaler.style.transform = origTransform;
@@ -4949,7 +4895,7 @@ function initEventListeners() {
 // GOOGLE SHARED DRIVE STORAGE & SYNC MODULE
 // ==========================================================================
 
-// Placeholder until /api/storage/config loads; the real settings live server-side
+// Placeholder until storage.getConfig answers; the real settings live in the app (api.js)
 let storageConfig = {
   enabled: false,
   drivePath: "",
@@ -4976,20 +4922,25 @@ function initStorageModule() {
   if (closeBtn) closeBtn.addEventListener("click", () => modal && modal.classList.add("hidden"));
   if (closeFooterBtn) closeFooterBtn.addEventListener("click", () => modal && modal.classList.add("hidden"));
 
-  const pathInput = document.getElementById("storageDrivePathInput");
-  if (pathInput) {
-    pathInput.addEventListener("input", (e) => {
-      updateStorageSubfolderDisplay(e.target.value);
+  // The folder is picked in a dialog: the page never sees or sends a path of its own
+  const chooseBtn = document.getElementById("chooseStorageFolderBtn");
+  if (chooseBtn) {
+    chooseBtn.addEventListener("click", async () => {
+      try {
+        if (!window.toolbox) throw new Error("This needs the Producers Toolbox app.");
+        if (await window.toolbox.folder.choose()) await fetchStorageConfigFromServer();
+      } catch (e) {
+        alert("Could not use that folder: " + e.message);
+      }
     });
   }
 
   if (saveConfigBtn) {
     saveConfigBtn.addEventListener("click", () => {
       const enabled = document.getElementById("enableStorageDrive").checked;
-      const path = document.getElementById("storageDrivePathInput").value.trim();
       const autoSync = document.getElementById("storageAutoSync").checked;
 
-      saveStorageConfigToServer({ enabled, drivePath: path, autoSync });
+      saveStorageConfigToServer({ enabled, autoSync });
     });
   }
 
@@ -5009,9 +4960,8 @@ function updateStorageSubfolderDisplay(path) {
 
 async function fetchStorageConfigFromServer() {
   try {
-    const res = await fetch("/api/storage/config");
-    if (res.ok) {
-      const data = await res.json();
+    const data = await appCall("storage.getConfig");
+    {
       storageConfig = data;
 
       document.getElementById("enableStorageDrive").checked = data.enabled !== false;
@@ -5019,8 +4969,6 @@ async function fetchStorageConfigFromServer() {
       document.getElementById("storageAutoSync").checked = data.autoSync !== false;
       updateStorageSubfolderDisplay(data.drivePath);
 
-      const statusBadge = document.getElementById("storageStatusBadge");
-      const dot = document.getElementById("storageDriveStatusDot");
       const openBtn = document.getElementById("openStorageSettingsBtn");
 
       if (data.isAccessible) {
@@ -5031,7 +4979,7 @@ async function fetchStorageConfigFromServer() {
           pullDataFromSharedDrive(true);
         }
       } else {
-        setDriveStatus("off", "Drive not found · working on this computer only");
+        setDriveStatus("off", data.drivePath ? "Drive not found · working on this computer only" : "No folder chosen");
         if (openBtn) openBtn.title = `Google Shared Drive: ${data.drivePath} (Click to connect)`;
       }
     }
@@ -5042,34 +4990,21 @@ async function fetchStorageConfigFromServer() {
 
 async function saveStorageConfigToServer(cfg) {
   try {
-    const res = await fetch("/api/storage/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cfg),
-    });
-
-    if (res.ok) {
-      const resp = await res.json();
-      storageConfig = resp.config;
-      storageConfig.isAccessible = resp.isAccessible;
-
-      const statusBadge = document.getElementById("storageStatusBadge");
-      const dot = document.getElementById("storageDriveStatusDot");
+    const resp = await appCall("storage.setConfig", cfg);
+    {
+      storageConfig = resp;
 
       if (resp.isAccessible) {
         setDriveStatus("ok", "Connected · folders created");
         // Immediately sync from drive
         pullDataFromSharedDrive(false);
       } else {
-        setDriveStatus("warn", "Folder saved · waiting for the drive");
-        alert(
-          `Path saved to: "${cfg.drivePath}".\nIf Google Drive for Desktop is running, subfolders will sync automatically.`,
-        );
+        setDriveStatus("warn", resp.drivePath ? "Folder saved · waiting for the drive" : "No folder chosen");
       }
       document.getElementById("storageSettingsModal").classList.add("hidden");
     }
   } catch (e) {
-    alert("Could not reach local storage server: " + e.message);
+    alert("Could not save the Shared Drive settings: " + e.message);
   }
 }
 
@@ -5079,15 +5014,7 @@ async function pushLocalDataToSharedDrive() {
 
     // 1. Push Full Gear DB
     const allGear = getAllGearItems();
-    const gearRes = await fetch("/api/storage/save-database", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: scrubRentmanTokens(JSON.stringify(allGear)),
-    });
-    if (!gearRes.ok) {
-      const err = await gearRes.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${gearRes.status} saving database`);
-    }
+    await appCall("storage.saveDatabase", scrubRentmanTokens(JSON.stringify(allGear)));
 
     // 2. Push Saved Cases & Current Active Card
     const cases = readLibrary();
@@ -5100,12 +5027,12 @@ async function pushLocalDataToSharedDrive() {
 
     let savedCasesCount = 0;
     for (const c of cases) {
-      const caseRes = await fetch("/api/storage/save-case", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: scrubRentmanTokens(JSON.stringify(c)),
-      });
-      if (caseRes.ok) savedCasesCount++;
+      try {
+        await appCall("storage.saveCase", scrubRentmanTokens(JSON.stringify(c)));
+        savedCasesCount++;
+      } catch (e) {
+        console.warn("Could not save a card to the Shared Drive:", e);
+      }
     }
 
     showToastNotification(`Pushed ${allGear.length} gear items & ${savedCasesCount} cases to Shared Drive!`, "☁️");
@@ -5135,13 +5062,8 @@ function setDriveStatus(state, text) {
 
 async function pullDataFromSharedDrive(silent = false) {
   try {
-    const res = await fetch("/api/storage/sync-all");
-    if (!res.ok) {
-      if (!silent) throw new Error("Could not read from Google Shared Drive folder. Please verify path.");
-      return;
-    }
     // Drop any Rentman token that older versions wrote into shared image URLs
-    const data = JSON.parse(scrubRentmanTokens(await res.text()));
+    const data = JSON.parse(scrubRentmanTokens(JSON.stringify(await appCall("storage.syncAll"))));
 
     if (data.gearDatabase && Array.isArray(data.gearDatabase) && data.gearDatabase.length > 0) {
       customGearDb = data.gearDatabase;
@@ -5176,21 +5098,17 @@ async function pullDataFromSharedDrive(silent = false) {
 // Auto-sync helper for new gear / cases
 function triggerAutoSyncGearDb() {
   if (storageConfig && storageConfig.enabled) {
-    fetch("/api/storage/save-database", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: scrubRentmanTokens(JSON.stringify(customGearDb)),
-    }).catch((e) => console.warn("Auto-sync gear DB error:", e));
+    appCall("storage.saveDatabase", scrubRentmanTokens(JSON.stringify(customGearDb))).catch((e) =>
+      console.warn("Auto-sync gear DB error:", e),
+    );
   }
 }
 
 function triggerAutoSyncCase(caseObj) {
   if (storageConfig && storageConfig.enabled) {
-    fetch("/api/storage/save-case", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: scrubRentmanTokens(JSON.stringify(caseObj)),
-    }).catch((e) => console.warn("Auto-sync case error:", e));
+    appCall("storage.saveCase", scrubRentmanTokens(JSON.stringify(caseObj))).catch((e) =>
+      console.warn("Auto-sync case error:", e),
+    );
   }
 }
 
@@ -5200,14 +5118,30 @@ function triggerAutoSyncCase(caseObj) {
 // ==========================================================================
 
 let rentmanConfig = {
-  token: localStorage.getItem("rentman_api_token") || "",
+  token: "",
   connected: false,
-  useDemo: !localStorage.getItem("rentman_api_token"),
+  useDemo: true,
   includeCodeInContent: true,
   setCodeAsCaseTag: true,
 };
 
 let rentmanCachedEquipment = [];
+
+// The token lives in the app's encrypted store. Versions before the Producers Toolbox kept it in localStorage: move
+// it over once, and never leave a plaintext copy behind.
+async function loadRentmanToken() {
+  const legacy = localStorage.getItem("rentman_api_token");
+  localStorage.removeItem("rentman_api_token");
+  if (!window.toolbox) return;
+  const { available, values } = await window.toolbox.secrets.getAll();
+  let token = values.rentmanToken || "";
+  if (!token && legacy && available) {
+    await window.toolbox.secrets.set("rentmanToken", legacy);
+    token = legacy;
+  }
+  rentmanConfig.token = token;
+  rentmanConfig.useDemo = !token;
+}
 try {
   const savedRentmanCatalog = localStorage.getItem("rentman_cached_catalog");
   if (savedRentmanCatalog) {
@@ -5574,45 +5508,8 @@ async function fetchRentman(endpoint, params = {}) {
 
   const queryStr = new URLSearchParams(mergedParams).toString();
   const urlPath = pathOnly + (queryStr ? "?" + queryStr : "");
-
-  // 1. Try direct fetch (STRICT GET ONLY) with quick abort timeout for CORS
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
-    const directRes = await fetch(`https://api.rentman.net${urlPath.startsWith("/") ? "" : "/"}${urlPath}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${rentmanConfig.token}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    if (directRes.ok) {
-      return await directRes.json();
-    }
-  } catch (err) {
-    // Direct browser fetch failed (often CORS) - proceed immediately to local proxy
-  }
-
-  // 2. Server proxy fallback via /api/rentman (STRICT GET ONLY)
-  try {
-    const proxyUrl = `/api/rentman?endpoint=${encodeURIComponent(pathOnly)}&${queryStr}`;
-    const proxyRes = await fetch(proxyUrl, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${rentmanConfig.token}`,
-      },
-    });
-    if (proxyRes.ok) {
-      return await proxyRes.json();
-    }
-    const errText = await proxyRes.text();
-    throw new Error(`Rentman API (${proxyRes.status}): ${errText}`);
-  } catch (e) {
-    console.error("Rentman proxy error:", e);
-    throw e;
-  }
+  // Through the app: it adds the token, and only ever sends GET requests to api.rentman.net
+  return appCall("rentman.get", urlPath);
 }
 
 let rentmanCatalogLoading = false;
@@ -5637,7 +5534,7 @@ function updateRentmanLoadingStatus(text) {
 
 function mapRentmanItemToNormalized(item) {
   let imgUrl = null;
-  // No token in the URL: the image proxy uses the token the page registered via /api/rentman-token
+  // No token in the URL: the app adds it when it loads the image (see the error listener at the top)
   if (item.image && typeof item.image === "object") {
     if (item.image.url) {
       imgUrl = `/api/rentman-image?url=${encodeURIComponent(item.image.url)}`;
@@ -6111,12 +6008,13 @@ function initRentmanModule() {
   const statusBadge = document.getElementById("rentmanStatusBadge");
   const webImportBadge = document.getElementById("webImportRentmanBadge");
 
-  // Sync initial configuration states
-  if (tokenInput && rentmanConfig.token) {
-    tokenInput.value = rentmanConfig.token;
-  }
-  if (demoCb) demoCb.checked = rentmanConfig.useDemo;
-  if (tokenRow) tokenRow.classList.toggle("hidden", rentmanConfig.useDemo);
+  // Sync initial configuration states (again once the saved token has loaded)
+  const syncTokenUi = () => {
+    if (tokenInput) tokenInput.value = rentmanConfig.token;
+    if (demoCb) demoCb.checked = rentmanConfig.useDemo;
+    if (tokenRow) tokenRow.classList.toggle("hidden", rentmanConfig.useDemo);
+  };
+  syncTokenUi();
   if (includeCodeCb) includeCodeCb.checked = rentmanConfig.includeCodeInContent;
   if (setCodeTagCb) setCodeTagCb.checked = rentmanConfig.setCodeAsCaseTag;
 
@@ -6151,6 +6049,12 @@ function initRentmanModule() {
     }
   };
   updateStatusDisplay();
+  loadRentmanToken()
+    .then(() => {
+      syncTokenUi();
+      updateStatusDisplay();
+    })
+    .catch((e) => console.warn("Could not load the Rentman token:", e));
 
   let currentSearchResults = [];
 
@@ -6184,14 +6088,7 @@ function initRentmanModule() {
       const card = document.createElement("div");
       card.className = "rentman-item-card";
 
-      let thumbHtml = "";
-      if (item.image && (item.image.startsWith("<svg") || item.image.startsWith("&lt;svg"))) {
-        thumbHtml = item.image;
-      } else if (item.image) {
-        thumbHtml = `<img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy">`;
-      } else {
-        thumbHtml = AV_ICONS.genericBox;
-      }
+      const thumbHtml = imageHtml(item.image, `alt="${escapeHtml(item.name)}" loading="lazy"`) || AV_ICONS.genericBox;
 
       const isKit = item.is_combination || item.type === "case" || item.type === "set";
       const codeHtml = item.code ? `<span class="rentman-code-tag">${escapeHtml(item.code)}</span>` : "";
@@ -6209,7 +6106,7 @@ function initRentmanModule() {
           <h4 style="font-size:14px; font-weight:600; margin:8px 0 4px 0; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
             ${escapeHtml(item.name)}
           </h4>
-          <div style="font-size:12px; color:var(--muted);">${escapeHtml(item.category)} · qty ${item.quantity || 1}</div>
+          <div style="font-size:12px; color:var(--muted);">${escapeHtml(item.category)} · qty ${escapeHtml(item.quantity || 1)}</div>
         </div>
         <div style="display:flex; gap:6px; flex-direction:column;">
           <button type="button" class="btn ${isKit ? "btn-primary" : "btn-secondary"} btn-sm rentman-gen-card-btn" style="width:100%;">
@@ -6339,14 +6236,21 @@ function initRentmanModule() {
         return;
       }
       testConnBtn.innerText = "Testing...";
+      const previous = rentmanConfig.token;
       rentmanConfig.token = val;
       rentmanConfig.useDemo = false;
       try {
-        const testRes = await fetchRentman("/equipment", { limit: 1 });
+        if (!window.toolbox) throw new Error("This needs the Producers Toolbox app.");
+        // The app keeps the token encrypted and uses it for every Rentman request
+        await window.toolbox.secrets.set("rentmanToken", val);
+        const testRes = await fetchRentman("/equipment", { limit: 1 }).catch(async (err) => {
+          if (previous) await window.toolbox.secrets.set("rentmanToken", previous);
+          else await window.toolbox.secrets.remove("rentmanToken");
+          rentmanConfig.token = previous;
+          throw err;
+        });
         if (testRes) {
           rentmanConfig.connected = true;
-          localStorage.setItem("rentman_api_token", val);
-          syncRentmanTokenCookie(val);
           updateStatusDisplay();
           showToastNotification("Connected to api.rentman.net successfully!", "🟢");
           await loadFullRentmanCatalog(true);
@@ -6395,14 +6299,8 @@ function renderRentmanQuickKits() {
     btn.type = "button";
     btn.className = "rentman-kit-row";
 
-    let thumbHtml = "";
-    if (kit.image && (kit.image.startsWith("<svg") || kit.image.startsWith("&lt;svg"))) {
-      thumbHtml = kit.image;
-    } else if (kit.image) {
-      thumbHtml = `<img src="${kit.image}" style="width:100%; height:100%; object-fit:contain;">`;
-    } else {
-      thumbHtml = AV_ICONS.genericBox;
-    }
+    const thumbHtml =
+      imageHtml(kit.image, 'alt="" style="width:100%; height:100%; object-fit:contain;"') || AV_ICONS.genericBox;
 
     btn.innerHTML = `
       <div style="display:flex; align-items:center; gap:10px; width:100%;">

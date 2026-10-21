@@ -1,0 +1,169 @@
+name: Release
+
+# release-please keeps a release PR open (version bump + CHANGELOG.md) from the Conventional Commits on main. Merging it
+# creates a DRAFT GitHub release; this workflow then builds, signs and verifies the installers and attaches them.
+# Publishing the draft by hand is the release: installed apps only see published releases.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    # Skipped until the release GitHub App is set up (see README, "Commits and releases")
+    if: vars.RELEASE_APP_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      # A GitHub App token: PRs opened with GITHUB_TOKEN would not start CI, and the repo does not let Actions
+      # create PRs
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ${{ matrix.os }}
+    # Signing secrets live in this environment (deployments from main only, with a required reviewer)
+    environment: release
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache in a job that holds signing secrets
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: The tag matches the app version
+        shell: bash
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          [ "v$version" = "$TAG" ] || { echo "::error::Tag $TAG does not match apps/desktop version $version"; exit 1; }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @producers-toolbox/desktop build
+
+      # The signing credentials are the company's (Stream My Event B.V.), shared with Holographics, under the same
+      # secret names.
+      - name: Build, sign and notarize (macOS)
+        if: runner.os == 'macOS'
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTS }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_KEY_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY"
+          pnpm --filter @producers-toolbox/desktop exec electron-builder --mac --publish never
+          rm -f "$APPLE_API_KEY"
+          # electron-builder only warns when signing or notarization is skipped, so check the result here
+          for app in apps/desktop/dist/mac*/*.app; do
+            codesign --verify --deep --strict "$app"
+            xcrun stapler validate "$app"
+            spctl --assess --type execute "$app"
+          done
+
+      - name: Prepare Windows signing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AZURE_CLIENT_CERT_PEM: ${{ secrets.AZURE_CLIENT_CERT_PEM }}
+        run: |
+          # The certificate and key (PEM) the Azure credential signs in with
+          $pem = Join-Path $env:RUNNER_TEMP "azure-signing.pem"
+          [IO.File]::WriteAllBytes($pem, [Convert]::FromBase64String($env:AZURE_CLIENT_CERT_PEM))
+          "AZURE_CLIENT_CERTIFICATE_PATH=$pem" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          # electron-builder installs the TrustedSigning module with Install-Module, which fails on the runner while
+          # bootstrapping the NuGet provider (electron-builder#8828). Install it with PSResourceGet instead and make
+          # electron-builder import it. Stops the build when a newer electron-builder no longer has these lines.
+          Install-PSResource -Name TrustedSigning -Repository PSGallery -TrustRepository
+          $f = node -p "require.resolve('app-builder-lib/out/codeSign/windowsSignAzureManager.js', { paths: [require('path').dirname(require.resolve('electron-builder/package.json', { paths: ['apps/desktop'] }))] })"
+          $installProvider = 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser'
+          $installModule = 'Install-Module -Name TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser'
+          $src = Get-Content $f -Raw
+          if (-not ($src.Contains($installProvider) -and $src.Contains($installModule))) {
+            throw "electron-builder changed; check whether $f still needs this patch"
+          }
+          $src.Replace($installProvider, 'exit 0').Replace($installModule, 'Import-Module TrustedSigning -ErrorAction Stop') | Set-Content $f
+
+      - name: Build and sign (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        run: |
+          # Azure Artifact Signing account shared with Holographics. publisherName goes into app-update.yml, and
+          # electron-updater checks every downloaded update against it.
+          pnpm --filter @producers-toolbox/desktop exec electron-builder --win --publish never `
+            "-c.win.azureSignOptions.endpoint=https://neu.codesigning.azure.net" `
+            "-c.win.azureSignOptions.codeSigningAccountName=holographics" `
+            "-c.win.azureSignOptions.certificateProfileName=holographics-ci-signing" `
+            "-c.win.azureSignOptions.publisherName=Stream My Event B.V."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem apps/desktop/dist/*.exe | ForEach-Object {
+            if ((Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid') { throw "$($_.Name) is not signed" }
+          }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-${{ runner.os }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/latest*.yml
+
+  upload:
+    needs: [release-please, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: packages-*
+          path: packages
+          merge-multiple: true
+      - name: Attach the installers and update feeds to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh release upload "$TAG" packages/* --clobber

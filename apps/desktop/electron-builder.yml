@@ -2,17 +2,19 @@
 appId: com.streammyevent.producers-toolbox
 # The userData folder name (src/main/main.js, build/installer.nsh): never rename it, or users lose their data.
 productName: Producers Toolbox
-copyright: Copyright © 2026 Stream My Event
+copyright: Copyright © 2026 Stream My Event B.V. and VK Media
 directories:
   output: dist
   buildResources: build
+# Tools go inside app.asar, so asar integrity also covers each tool's api.js (it runs in the main process).
 files:
-  - src/**/*
+  - out/**/*
+  - src/renderer/**/*
   - package.json
-extraResources:
   - from: ../../tools
     to: tools
     filter: ["*/tool.json", "*/api.js", "*/lib/**", "*/web/**"]
+afterPack: build/verify-asar.js
 electronFuses:
   runAsNode: false
   enableNodeOptionsEnvironmentVariable: false
@@ -27,6 +29,8 @@ publish:
 win:
   target: [{ target: nsis, arch: [x64] }]
   icon: build/icon.ico
+  # Signing (Azure Artifact Signing, azureSignOptions) is set by .github/workflows/release.yml, so local builds stay
+  # unsigned. Its publisherName ends up in app-update.yml, and electron-updater checks every update against it.
 nsis:
   # No spaces: the name must equal the GitHub release asset name that latest.yml points at.
   artifactName: Producers-Toolbox-Setup-${version}.${ext}
@@ -50,3 +54,11 @@ mac:
   artifactName: Producers-Toolbox-${version}-${arch}-mac.${ext}
   category: public.app-category.productivity
   icon: build/icon.png
+  # Signed with the Developer ID certificate in CSC_LINK and notarized with the App Store Connect key in APPLE_API_KEY*
+  # (release.yml). Without them (local builds) both steps are skipped with a warning.
+  hardenedRuntime: true
+  notarize: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: Smoelenboek uses the camera to take speaker photos.

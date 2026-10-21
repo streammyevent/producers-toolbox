@@ -68,3 +68,74 @@ const out = C.toCSV([
 const back = C.itemsFromCSV(out, () => "z");
 check("roundtrip name", back[0].name, 'Cable, 5m "x"');
 check("roundtrip values", [back[0].buyPrice, back[0].buyIncl, back[0].vat, back[0].margin], [11.9, true, 21, 15]);
+
+// Stored data and backups
+test("normalizeState rejects data that is not a Quote Pricer state", () => {
+  for (const raw of [null, "x", [], { items: [] }, { items: {}, quotes: [] }]) {
+    assert.strictEqual(
+      C.normalizeState(raw, () => "x1"),
+      null,
+    );
+  }
+});
+
+test("normalizeState keeps known fields, coerces numbers and replaces unsafe or duplicate ids", () => {
+  let n = 0;
+  const makeId = () => "gen" + n++;
+  const s = C.normalizeState(
+    {
+      items: [
+        {
+          id: 'x" onmouseover="alert(1)',
+          name: "Cable",
+          buyPrice: "12.5",
+          buyIncl: true,
+          vat: 21,
+          margin: 20,
+          evil: 1,
+        },
+        { id: "iOk1", name: { not: "text" }, buyPrice: Infinity, link: "https://shop.example/" },
+        { id: "iOk1", name: "Duplicate id" },
+        "not an item",
+      ],
+      quotes: [
+        {
+          id: "qOk",
+          name: "Show",
+          client: "<b>Client</b>",
+          lines: [
+            { type: "group", title: "Basis", extra: true },
+            { type: "item", itemId: "iOk1", qty: "2", margin: "" },
+            { type: "custom", name: "Work", qty: 8, price: 75, cost: 40 },
+            { type: "script", html: "<img src=x>" },
+          ],
+        },
+      ],
+      activeQuote: "qOk",
+    },
+    makeId,
+  );
+  assert.deepStrictEqual(
+    s.items.map((i) => i.id),
+    ["gen0", "iOk1", "gen1"],
+  );
+  assert.deepStrictEqual(s.items[0], {
+    id: "gen0",
+    name: "Cable",
+    buyPrice: 12.5,
+    buyIncl: true,
+    vat: 21,
+    margin: 20,
+    extOverride: null,
+    link: "",
+  });
+  assert.strictEqual(s.items[1].name, "");
+  assert.strictEqual(s.items[1].buyPrice, null);
+  assert.deepStrictEqual(s.quotes[0].lines, [
+    { type: "group", title: "Basis" },
+    { type: "item", itemId: "iOk1", qty: 2, margin: null },
+    { type: "custom", name: "Work", qty: 8, price: 75, cost: 40 },
+  ]);
+  assert.strictEqual(s.quotes[0].client, "<b>Client</b>"); // text is escaped when rendered, not here
+  assert.strictEqual(s.activeQuote, "qOk");
+});
