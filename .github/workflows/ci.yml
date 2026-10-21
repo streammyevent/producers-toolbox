@@ -60,6 +60,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run build --filter=@producers-toolbox/desktop
       - run: pnpm --filter @producers-toolbox/desktop dist:dir
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"

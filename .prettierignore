@@ -6,6 +6,8 @@ playwright-report
 test-results
 .turbo
 CHANGELOG.md
+# Scan dumps and snapshots, written by the Network Tool's scripts and tests
+tools/network-tool/tests/fixtures
 .release-please-manifest.json
 
 # CRLF is pinned by .gitattributes for these; Prettier defaults to LF

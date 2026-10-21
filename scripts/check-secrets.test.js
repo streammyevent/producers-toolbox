@@ -154,14 +154,42 @@ test("scanRepo reports files that must never be committed", (t) => {
     t.skip("git is not available");
     return;
   }
-  for (const name of ["HANDOFF.md", "notes.local.md", "storage_config.json", ".env", ".env.example", "README.md"]) {
+  for (const name of [
+    "HANDOFF.md",
+    "notes.local.md",
+    "storage_config.json",
+    ".env",
+    ".env.example",
+    "creds.enc",
+    "README.md",
+  ]) {
     fs.writeFileSync(path.join(dir, name), "x\n");
   }
   assert.deepEqual(
     scanRepo(dir)
       .map((f) => f.file)
       .sort(),
-    [".env", "HANDOFF.md", "notes.local.md", "storage_config.json"],
+    [".env", "HANDOFF.md", "creds.enc", "notes.local.md", "storage_config.json"],
+  );
+});
+
+test("scanRepo skips the email check in license texts only", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spd-check-secrets-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "ignore" });
+  } catch {
+    t.skip("git is not available");
+    return;
+  }
+  fs.mkdirSync(path.join(dir, "fonts"));
+  const author = "Copyright 2011, The Font Project Authors (" + "author@" + "font-project.org)\n";
+  for (const name of ["fonts/OFL.txt", "LICENSE-thing.txt", "THIRD_PARTY_NOTICES.txt", "notes.txt"]) {
+    fs.writeFileSync(path.join(dir, name), author);
+  }
+  assert.deepEqual(
+    scanRepo(dir).map((f) => [f.file, f.kind]),
+    [["notes.txt", "Email address"]],
   );
 });
 

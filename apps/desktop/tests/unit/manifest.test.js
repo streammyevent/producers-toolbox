@@ -9,7 +9,7 @@ const toolsDir = path.join(__dirname, "..", "..", "..", "..", "tools");
 
 test("every built-in tool has a valid manifest", () => {
   const ids = fs.readdirSync(toolsDir).filter((d) => fs.existsSync(path.join(toolsDir, d, "tool.json")));
-  assert.deepStrictEqual(ids.sort(), ["content-card-studio", "quote-pricer", "smoelenboek"]);
+  assert.deepStrictEqual(ids.sort(), ["content-card-studio", "network-tool", "quote-pricer", "smoelenboek"]);
   for (const id of ids) {
     const m = readManifest(path.join(toolsDir, id), id);
     assert.strictEqual(m.id, id);
@@ -26,11 +26,14 @@ test("Smoelenboek's folder file names match the pattern its pages use", () => {
 
 test("weak content security policies are refused", () => {
   assert.strictEqual(cspProblem(DEFAULT_CSP), null);
+  assert.strictEqual(cspProblem("script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'"), null);
   const bad = {
     "script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'": /script-src/,
     "default-src *; object-src 'none'; base-uri 'none'": /script-src/,
     "script-src 'self'; script-src-attr 'unsafe-inline'; object-src 'none'; base-uri 'none'": /script-src-attr/,
     "script-src 'self'; style-src 'unsafe-eval'; object-src 'none'; base-uri 'none'": /eval/,
+    "script-src 'self' 'unsafe-eval'; object-src 'none'; base-uri 'none'": /script-src/,
+    "script-src 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'": /script-src/,
     "script-src 'self'; base-uri 'none'": /object-src/,
     "script-src 'self'; object-src 'none'": /base-uri/,
   };

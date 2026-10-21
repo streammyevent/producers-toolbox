@@ -16,3 +16,7 @@ Third-party files keep their own licenses:
 - tools/*/web/fonts/ and apps/desktop/src/renderer/fonts/: SIL Open Font
   License 1.1 (see the OFL-*.txt and LICENSE.TXT files next to the fonts)
 - tools/content-card-studio/web/vendor/: MIT (see the LICENSE-*.txt files there)
+- tools/network-tool/web/vendor/chiptune3/: chiptune3 (MIT) and libopenmpt
+  (BSD-3-Clause), see LICENSE and LICENSE-libopenmpt.txt there
+- tools/network-tool/web/music/: tracks by Drozerix, public domain (see
+  tracks.json there)

@@ -45,6 +45,9 @@ importers:
       '@electron/asar':
         specifier: ^4.3.1
         version: 4.3.1
+      '@producers-toolbox/tool-network-tool':
+        specifier: workspace:*
+        version: link:../../tools/network-tool
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -59,6 +62,8 @@ importers:
         version: 1.64.1
 
   tools/content-card-studio: {}
+
+  tools/network-tool: {}
 
   tools/quote-pricer: {}
 

@@ -38,7 +38,7 @@ const PATTERNS = [
   },
 ];
 
-// Personal data. Not checked in vendored code and the lockfile.
+// Personal data. Not checked in vendored code, license texts (font authors' emails) and the lockfile.
 const EMAIL_ALLOWED = /@(?:example\.(?:com|org|net)|[\w.-]+\.(?:test|invalid)|users\.noreply\.github\.com)$/i;
 const PERSONAL_PATTERNS = [
   { kind: "Windows user folder", regex: new RegExp("\\b[A-Za-z]:[\\\\/]+Us" + "ers[\\\\/]+[\\w.-]+", "g") },
@@ -54,10 +54,11 @@ const PERSONAL_PATTERNS = [
     allow: (value) => EMAIL_ALLOWED.test(value) || /^git@/i.test(value),
   },
 ];
-const PERSONAL_EXEMPT_FILE = /(?:^|\/)(?:vendor\/|pnpm-lock\.yaml$)/;
+const PERSONAL_EXEMPT_FILE = /(?:^|\/)(?:vendor\/|pnpm-lock\.yaml$|(?:LICENSE|OFL|THIRD_PARTY_NOTICES)[^/]*$)/;
 
 // Files that hold local notes, machine config or secrets.
-const FORBIDDEN_FILE = /^(?:HANDOFF\.md|storage_config\.json|.+\.local\.(?:md|json)|\.env(?!\.example$).*)$/i;
+const FORBIDDEN_FILE =
+  /^(?:HANDOFF\.md|storage_config\.json|creds\.enc|.+\.local\.(?:md|json)|\.env(?!\.example$).*)$/i;
 
 // An OAuth client id is public on its own; it only matters next to a client secret in the same file.
 const CLIENT_ID_REGEX = new RegExp("[0-9]+-[0-9a-z]+\\.apps\\.google" + "usercontent\\.com", "i");

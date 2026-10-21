@@ -9,7 +9,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "pnpm --filter @producers-toolbox/desktop start",
+    "build": "turbo run build",
+    "start": "turbo run build --filter=@producers-toolbox/desktop && pnpm --filter @producers-toolbox/desktop start",
     "lint": "eslint .",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
@@ -17,7 +18,7 @@
     "typecheck": "turbo run typecheck",
     "test": "node --test \"scripts/*.test.js\" && turbo run test",
     "test:e2e": "turbo run test:e2e",
-    "dist": "pnpm --filter @producers-toolbox/desktop dist"
+    "dist": "turbo run build --filter=@producers-toolbox/desktop && pnpm --filter @producers-toolbox/desktop dist"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

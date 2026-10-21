@@ -80,7 +80,8 @@ interface ToolContext {
   documentsDir: string;
   /** The folder the user picked for this tool, or null when tool.json has no "folder". */
   folder: ToolFolderStore | null;
-  secrets: { get(name: string): string | null };
+  /** Only names listed under "secrets" in tool.json. `set` throws when the OS cannot encrypt. */
+  secrets: { get(name: string): string | null; set(name: string, value: string): true };
   /** fetch for public internet addresses only (no local network), with size and time limits. */
   net: { fetchPublic(url: string, options?: ToolFetchOptions): Promise<ToolFetchResult> };
 }

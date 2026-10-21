@@ -13,7 +13,7 @@ files:
   - package.json
   - from: ../../tools
     to: tools
-    filter: ["*/tool.json", "*/api.js", "*/lib/**", "*/web/**"]
+    filter: ["*/tool.json", "*/api.js", "*/lib/**", "*/out/**", "*/web/**"]
 afterPack: build/verify-asar.js
 electronFuses:
   runAsNode: false
@@ -62,3 +62,4 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     NSCameraUsageDescription: Smoelenboek uses the camera to take speaker photos.
+    NSLocalNetworkUsageDescription: The Network Tool reads the switches and UniFi gear on the local network.

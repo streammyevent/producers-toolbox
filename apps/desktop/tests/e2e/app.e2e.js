@@ -83,11 +83,11 @@ function filesContaining(dir, needle) {
   return hits;
 }
 
-test("launcher lists all three tools", async () => {
+test("launcher lists all four tools", async () => {
   const { app, launcher } = await launch();
   try {
     const names = await launcher.locator(".card h2").allTextContents();
-    assert.deepStrictEqual(names.sort(), ["Content Card Studio", "Quote Pricer", "Smoelenboek"]);
+    assert.deepStrictEqual(names.sort(), ["Content Card Studio", "Network Tool", "Quote Pricer", "Smoelenboek"]);
   } finally {
     await app.close();
   }
@@ -157,13 +157,13 @@ test("launcher: pinning a tool moves it first and persists", async () => {
 test("every tool opens without script errors, under a strict script policy", async () => {
   const { app, launcher } = await launch();
   try {
-    for (const name of ["Content Card Studio", "Smoelenboek", "Quote Pricer"]) {
+    for (const name of ["Content Card Studio", "Smoelenboek", "Quote Pricer", "Network Tool"]) {
       const page = await openTool(app, launcher, name);
       await page.waitForTimeout(1500);
       const csp = await page.evaluate(async () => (await fetch(location.href)).headers.get("content-security-policy"));
-      assert.match(csp || "", /script-src 'self';/, `${name}: script-src`);
+      assert.match(csp || "", /script-src 'self'( 'wasm-unsafe-eval')?;/, `${name}: script-src`);
       assert.match(csp, /object-src 'none'/, `${name}: object-src`);
-      assert.doesNotMatch(csp, /unsafe-eval|script-src[^;]*unsafe-inline/, `${name}: unsafe scripts`);
+      assert.doesNotMatch(csp, /'unsafe-eval'|script-src[^;]*unsafe-inline/, `${name}: unsafe scripts`);
       const real = page.errors.filter((e) => !/favicon|ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED)/i.test(e));
       assert.deepStrictEqual(real, [], `${name} logged errors`);
       // Only web/ is served: the tool's main-process code and manifest are not reachable
@@ -308,6 +308,57 @@ test("Smoelenboek: the Search key is stored encrypted, survives a restart and st
     assert.deepStrictEqual((await other.evaluate(() => window.toolbox.secrets.getAll())).values, {});
   } finally {
     await app.close();
+  }
+});
+
+// No test here scans: that would sweep the network this machine is on.
+test("Network Tool: the crew code file stores the logins encrypted; the music player runs under its script policy", async (t) => {
+  const { seal } = require("../../../../tools/network-tool/out/creds.js");
+  const logins = { switchUser: "admin", switchPass: "switch-e2e", unifiUser: "audit", unifiPass: "unifi-e2e" };
+  const file = path.join(tempDir("network-tool-e2e-"), "creds.enc");
+  fs.writeFileSync(file, await seal(logins, "flypack-e2e"));
+  const { app, launcher, dataDir } = await launch();
+  try {
+    const page = await openTool(app, launcher, "Network Tool");
+    await page.getByText("SET UP THIS COMPUTER").waitFor();
+    if (!(await page.evaluate(() => window.toolbox.secrets.getAll())).available) {
+      t.skip("OS encryption is not available on this machine");
+      return;
+    }
+    await page.locator("#file").setInputFiles(file);
+    await page.locator("#code").fill("wrong-code");
+    await page.getByRole("button", { name: "Import" }).click();
+    await page.getByText(/WRONG CREW CODE/).waitFor();
+    assert.deepStrictEqual((await page.evaluate(() => window.toolbox.secrets.getAll())).values, {});
+
+    const text = fs.readFileSync(file, "utf8");
+    assert.strictEqual(
+      await settle(page, (f) => window.toolbox.call("creds.import", f, "flypack-e2e"), text),
+      "resolved true",
+    );
+    assert.deepStrictEqual((await page.evaluate(() => window.toolbox.secrets.getAll())).values, logins);
+    assert.match(
+      await settle(page, () => window.toolbox.call("port.change", "SWITCH01", "ether5", 60)),
+      /not a RouterOS switch in the last scan/,
+    );
+
+    // libopenmpt compiles WebAssembly in an AudioWorklet loaded from app://
+    const music = await settle(page, async () => {
+      const { ChiptuneJsPlayer } = await import("./vendor/chiptune3/chiptune3.js");
+      const player = new ChiptuneJsPlayer({ repeatCount: 0 });
+      await new Promise((resolve, reject) => {
+        player.onInitialized(resolve);
+        setTimeout(() => reject(new Error("the player did not start")), 8000);
+      });
+      return "started";
+    });
+    assert.strictEqual(music, 'resolved "started"');
+    assert.deepStrictEqual(page.errors, []);
+  } finally {
+    await app.close();
+  }
+  for (const value of Object.values(logins)) {
+    assert.deepStrictEqual(filesContaining(dataDir, value), [], "login found in plaintext on disk");
   }
 });
 
