@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/streammyevent/producers-toolbox/compare/v0.1.1...v0.2.0) (2026-10-21)
+
+
+### Features
+
+* **network-tool:** flypack network audit tool ([#9](https://github.com/streammyevent/producers-toolbox/issues/9)) ([b545836](https://github.com/streammyevent/producers-toolbox/commit/b545836091bc2f4b3a525c0354132ed58f5343af))
+
+
+### Bug Fixes
+
+* **content-card-studio:** show no image instead of guessing a Rentman photo ([#8](https://github.com/streammyevent/producers-toolbox/issues/8)) ([39f24d8](https://github.com/streammyevent/producers-toolbox/commit/39f24d82b8bbd9651605b56b0d05f83647c0f3db))
+
 ## [0.1.1](https://github.com/streammyevent/producers-toolbox/compare/v0.1.0...v0.1.1) (2026-10-21)
 
 
