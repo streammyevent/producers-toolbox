@@ -82,13 +82,17 @@ function parseCsp(csp: string): Map<string, string[]> {
 export function cspProblem(csp: string): string | null {
   const d = parseCsp(csp);
   const scripts = d.get("script-src") ?? d.get("default-src");
-  if (!scripts || scripts.join(" ") !== "'self'") return "script-src must be exactly 'self'";
+  // 'wasm-unsafe-eval' lets a page compile WebAssembly it already has; it does not allow JS eval.
+  const allowed = (t: string) => t === "'self'" || t === "'wasm-unsafe-eval'";
+  if (!scripts?.includes("'self'") || !scripts.every(allowed)) {
+    return "script-src must be 'self', optionally with 'wasm-unsafe-eval'";
+  }
   for (const [name, tokens] of d) {
-    if (name.startsWith("script-src") && tokens.some((t) => t !== "'self'" && t !== "'none'")) {
-      return `${name} may only allow 'self'`;
+    if (name.startsWith("script-src") && tokens.some((t) => !allowed(t) && t !== "'none'")) {
+      return `${name} may only allow 'self' and 'wasm-unsafe-eval'`;
     }
   }
-  if (/'unsafe-eval'|'wasm-unsafe-eval'/i.test(csp)) return "eval is not allowed";
+  if (/'unsafe-eval'/i.test(csp)) return "eval is not allowed";
   if (d.get("object-src")?.join(" ") !== "'none'") return "object-src must be 'none'";
   if (!d.has("base-uri")) return "base-uri is required";
   return null;

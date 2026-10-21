@@ -1,3 +1,12 @@
 # Reviewed false positives: localStorage key names, not secrets
 tools/smoelenboek/tests/e2e/fixtures.js:generic-api-key:17
 tools/smoelenboek/web/js/app-core.js:generic-api-key:16
+# Reviewed false positives: UniFi port-light colours keyed by network id (24-hex database ids, not secrets)
+tools/network-tool/tests/fixtures/unifi.json:generic-api-key:797
+tools/network-tool/tests/fixtures/unifi.json:generic-api-key:805
+tools/network-tool/tests/fixtures/unifi.json:generic-api-key:809
+tools/network-tool/tests/fixtures/unifi.json:generic-api-key:813
+tools/network-tool/tests/fixtures/2026-10-07/unifi.json:generic-api-key:10544
+tools/network-tool/tests/fixtures/2026-10-07/unifi.json:generic-api-key:10552
+tools/network-tool/tests/fixtures/2026-10-07/unifi.json:generic-api-key:10556
+tools/network-tool/tests/fixtures/2026-10-07/unifi.json:generic-api-key:10560

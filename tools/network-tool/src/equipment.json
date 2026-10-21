@@ -1,0 +1,64 @@
+[
+  {
+    "oui": "00:1d:c1",
+    "type": "Dante device (Audinate)",
+    "vlan": ["Dante", "Greengo"]
+  },
+  {
+    "oui": "00:1f:80",
+    "type": "GreenGo intercom",
+    "vlan": ["Greengo"]
+  },
+  {
+    "oui": "00:0f:58",
+    "type": "Adder KVM",
+    "vlan": ["Tech", "KVM"]
+  },
+  {
+    "oui": "7c:2e:0d",
+    "type": "Blackmagic",
+    "vlan": ["Tech"]
+  },
+  {
+    "oui": "00:0e:dd",
+    "type": "Shure",
+    "vlan": ["Tech"]
+  },
+  {
+    "oui": "80:ee:73",
+    "type": "Shuttle PC",
+    "vlan": ["Tech", "Dante"]
+  },
+  {
+    "oui": "48:8f:5a",
+    "type": "MikroTik switch",
+    "vlan": [1]
+  },
+  {
+    "oui": "08:55:31",
+    "type": "MikroTik switch",
+    "vlan": [1]
+  },
+  {
+    "oui": "ac:8b:a9",
+    "type": "UniFi switch",
+    "vlan": [1]
+  },
+  {
+    "oui": "d8:b3:70",
+    "type": "UniFi gateway",
+    "vlan": [1]
+  },
+  {
+    "oui": "c8:a3:62",
+    "type": "",
+    "vendor": "ASIX Electronics Corporation",
+    "vlan": ["Default"]
+  },
+  {
+    "oui": "00:60:35",
+    "type": "",
+    "vendor": "Dallas Semiconductor, Inc.",
+    "vlan": ["Tech"]
+  }
+]

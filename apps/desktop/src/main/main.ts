@@ -94,7 +94,7 @@ function contextFor(tool: Tool): ToolContext {
     dataDir: userData("tools", tool.id),
     documentsDir: path.join(app.getPath("documents"), "Producers Toolbox"),
     folder: folders.get(tool.id) ?? null,
-    secrets: { get: (name) => secrets.get(tool, name) },
+    secrets: { get: (name) => secrets.get(tool, name), set: (name, value) => secrets.set(tool, name, value) },
     net: { fetchPublic: (url, options) => fetchPublic(url, options) },
   };
 }

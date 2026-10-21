@@ -21,9 +21,17 @@ exports.default = async ({ appOutDir, packager, electronPlatformName }) => {
     if (!files.has(file)) missing.push(file);
   }
   for (const id of fs.readdirSync(TOOLS)) {
-    if (fs.existsSync(path.join(TOOLS, id, "tool.json")) && !files.has(`tools/${id}/tool.json`)) {
-      missing.push(`tools/${id}/tool.json`);
+    if (!fs.existsSync(path.join(TOOLS, id, "tool.json"))) continue;
+    const need = [`tools/${id}/tool.json`];
+    // api.js and what it requires, e.g. a tool's compiled out/ folder
+    const api = path.join(TOOLS, id, "api.js");
+    if (fs.existsSync(api)) {
+      need.push(`tools/${id}/api.js`);
+      for (const [, rel] of fs.readFileSync(api, "utf8").matchAll(/require\("(\.\.?\/[^"]+)"\)/g)) {
+        need.push(path.posix.join(`tools/${id}`, path.posix.extname(rel) ? rel : `${rel}.js`));
+      }
     }
+    for (const file of need) if (!files.has(file)) missing.push(file);
   }
 
   // Every runtime dependency, resolved the way Node does inside the asar

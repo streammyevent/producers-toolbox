@@ -14,6 +14,8 @@ test-results/
 .env
 .env.*
 !.env.example
+# Network Tool logins sealed with the crew code (tools/network-tool/scripts/make-creds.js)
+creds.enc
 *.pem
 *.key
 *.p8

@@ -70,7 +70,8 @@ jobs:
           version="$(node -p "require('./apps/desktop/package.json').version")"
           [ "v$version" = "$TAG" ] || { echo "::error::Tag $TAG does not match apps/desktop version $version"; exit 1; }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @producers-toolbox/desktop build
+      # The desktop app and the tools it compiles (tools with TypeScript, such as network-tool)
+      - run: pnpm turbo run build --filter=@producers-toolbox/desktop
 
       # The signing credentials are the company's (Stream My Event B.V.), shared with Holographics, under the same
       # secret names.

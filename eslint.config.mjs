@@ -38,6 +38,11 @@ export default defineConfig([
     },
   },
   {
+    // Switch and UniFi replies are untyped JSON
+    files: ["tools/network-tool/src/**/*.ts"],
+    rules: { "@typescript-eslint/no-explicit-any": "off" },
+  },
+  {
     // The contract file declares globals for tool pages (Window, Toolbox, ...)
     files: ["**/*.d.ts"],
     rules: { "@typescript-eslint/no-unused-vars": "off" },
@@ -50,6 +55,7 @@ export default defineConfig([
       "tools/*/api.js",
       "tools/*/lib/**/*.js",
       "tools/*/tests/**/*.js",
+      "tools/*/scripts/**/*.js",
       "scripts/**/*.js",
     ],
     languageOptions: { sourceType: "commonjs", globals: { ...globals.node } },

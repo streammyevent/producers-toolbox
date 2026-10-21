@@ -1,0 +1,9 @@
+{
+  "id": "network-tool",
+  "name": "Network Tool",
+  "entry": "index.html",
+  "icon": "assets/icon.png",
+  "window": { "width": 1280, "height": 860 },
+  "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'",
+  "secrets": ["switchUser", "switchPass", "unifiUser", "unifiPass"]
+}

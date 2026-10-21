@@ -16,6 +16,8 @@ Turborepo monorepo:
   - `smoelenboek`: speaker photo directory (see `tools/smoelenboek/CLAUDE.md`).
   - `content-card-studio`: case and content cards, Rentman lookup, shared-drive sync, PNG export.
   - `quote-pricer`: price list, margins, quotes, Rentman CSV export.
+  - `network-tool`: flypack network audit and RouterOS port VLAN changes (see `tools/network-tool/CLAUDE.md`). Its
+    main-process code is TypeScript in `src/`, compiled to `out/` by its `build` script; `api.js` re-exports it.
 - `scripts/check-secrets.js`: scans tracked and new files for secrets and personal data.
 
 Tools ship inside the app (inside `app.asar`) and update with it. There is no runtime tool installation: do not add
@@ -28,10 +30,11 @@ one.
   user picks in a dialog; the page passes file names matching `folder.files`, never paths), `call(method, ...args)` (a
   method exported by the tool's own `api.js`) and `close()`.
 - `api.js` exports `{ "ns.method": async (ctx, ...args) => result }`. `ctx` is a `ToolContext`: `dataDir`,
-  `documentsDir`, `folder.requireFolder()`, `secrets.get(name)` and `net.fetchPublic(url, options)`. Results must be
+  `documentsDir`, `folder.requireFolder()`, `secrets.get/set(name)` and `net.fetchPublic(url, options)`. Results must be
   structured-cloneable (plain objects, strings, `Uint8Array`).
 - `tool.json` holds the whole per-tool policy: `entry` and `icon` (relative to `web/`), `window`, `csp` (sent as a
-  header; `script-src` must be exactly `'self'`), `permissions` (`camera`, `clipboard-read`), `secrets`, `folder`.
+  header; `script-src` is `'self'`, plus `'wasm-unsafe-eval'` only for a tool that runs WebAssembly), `permissions`
+  (`camera`, `clipboard-read`), `secrets`, `folder`.
   Unknown fields are an error, and a broken manifest stops the app at start.
 - Every IPC handler is registered through `handleTool` / `handleLauncher` in `src/main/ipc.ts`, which resolve the caller
   from the sending window and its top-level `app://` page. A unit test fails on a bare `ipcMain.handle` or `ipcMain.on`.
@@ -57,11 +60,14 @@ Use Node 24 (`.nvmrc`). The shell may have `ELECTRON_RUN_AS_NODE=1` set, which m
 ## Conventions
 
 - **Conventional Commits** on `main` (squash merge, the PR title is the commit). Scopes: `desktop`, `smoelenboek`,
-  `content-card-studio`, `quote-pricer`, `repo`, `deps`. release-please builds `CHANGELOG.md` and the version from them.
+  `content-card-studio`, `quote-pricer`, `network-tool`, `repo`, `deps`. release-please builds `CHANGELOG.md` and the
+  version from them.
 - One version for the app: `apps/desktop/package.json` (bumped by release-please, together with the root
   `package.json`).
 - TypeScript in stages: the shell is TypeScript; tool code is JavaScript, type-checked per file with `// @ts-check`
   (each tool's `tsconfig.json` includes the contract types). Move a file to TypeScript when it is seriously reworked.
+  A tool with TypeScript compiles `src/` to `out/` like the shell, and `apps/desktop` lists it as a `workspace:*`
+  devDependency so turbo builds it first.
 - Lint and format config live only at the root. ESLint 10 uses the nearest `eslint.config.*`, so a config inside a
   package would silently replace the root one.
 - Tool web code is classic `<script>` files that share globals. Declare a shared global in `eslint.config.mjs` only for
@@ -81,5 +87,8 @@ Use Node 24 (`.nvmrc`). The shell may have `ELECTRON_RUN_AS_NODE=1` set, which m
   files, exports or the repo. No plaintext fallback when encryption is unavailable.
 - Outbound requests from the main process go through `ctx.net.fetchPublic` (`src/main/net-guard.ts`): public
   addresses only, the DNS answer it checks is the one it connects to, redirects re-checked, bodies size-capped.
+  One exception: `network-tool` exists to read the local network, so its own code talks to the hosts it discovers on
+  the local subnet. Its pages pass no addresses, only an interface name and a switch id from the last scan.
 - No real customer data, prices, personal paths or real people's photos in code, tests or fixtures: use clearly
-  fictional data. `pnpm check:secrets` catches paths, emails and secret shapes, not everything.
+  fictional data. `pnpm check:secrets` catches paths, emails and secret shapes, not everything. The Network Tool's
+  fixtures are real network dumps: they go through `tools/network-tool/scripts/sanitize.js`, and a test guards them.

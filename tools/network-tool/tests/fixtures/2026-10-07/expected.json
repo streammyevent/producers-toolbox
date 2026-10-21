@@ -1,0 +1,18 @@
+[
+ "PASS SWITCH01 (10.0.0.102, CRS328-24P-4S+, RouterOS 7.24.5) IGMP snooping on, querier provided upstream (sfp-sfpplus1 198.18.0.10)",
+ "PASS SWITCH01 (10.0.0.102, CRS328-24P-4S+, RouterOS 7.24.5) strict-priority QoS for DSCP 56, 46 in hardware",
+ "PASS SWITCH02 (10.0.0.185, CRS328-24P-4S+, RouterOS 7.24.5) IGMP snooping on, querier provided upstream (sfp-sfpplus3 198.18.0.10)",
+ "PASS SWITCH02 (10.0.0.185, CRS328-24P-4S+, RouterOS 7.24.5) strict-priority QoS for DSCP 56, 46 in hardware",
+ "PASS SWITCH03 (10.0.0.243, CRS328-24P-4S+, RouterOS 7.24.5) IGMP snooping on, querier provided upstream (sfp-sfpplus3 198.18.0.10)",
+ "PASS SWITCH03 (10.0.0.243, CRS328-24P-4S+, RouterOS 7.24.5) strict-priority QoS for DSCP 56, 46 in hardware",
+ "PASS SWITCH04 (10.0.0.210, CRS328-24P-4S+, RouterOS 7.24.5) IGMP snooping on, querier provided upstream (sfp-sfpplus3 198.18.0.10)",
+ "PASS SWITCH04 (10.0.0.210, CRS328-24P-4S+, RouterOS 7.24.5) strict-priority QoS for DSCP 56, 46 in hardware",
+ "PASS SWITCH05 (10.0.0.220, CRS328-24P-4S+, RouterOS 7.24.5) IGMP snooping on, querier provided upstream (sfp-sfpplus3 198.18.0.10)",
+ "PASS SWITCH05 (10.0.0.220, CRS328-24P-4S+, RouterOS 7.24.5) strict-priority QoS for DSCP 56, 46 in hardware",
+ "PASS UniFi IGMP querier active on VLANs 1, 10, 20, 30, 40, 50, 60; critical VLANs without querier: none",
+ "WARN 48 Pro POE switch port 13 (GreenGo MCX) critical VLAN port at 100M without QoS policy",
+ "WARN 48 Pro POE switch port 28 (KVM 2) errors rx=3727 tx=0: check cable/SFP",
+ "WARN 48 Pro POE switch port 29 (KVM 3) errors rx=20309 tx=0: check cable/SFP",
+ "WARN 48 Pro POE switch port 6 (Inprik 1 Dante) critical VLAN port at 100M without QoS policy",
+ "WARN ASIX Electronics Corporation · host-02 · 192.168.31.139 ASIX Electronics Corporation on VLAN 30 (Tech), expected Default"
+]

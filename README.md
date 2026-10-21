@@ -7,6 +7,7 @@ One desktop app (Windows and macOS) with the small tools Stream My Event produce
 | **Smoelenboek** | Speaker photo directory and wireless-mic sheet, printable on A4 |
 | **Content Card Studio** | Case and content cards for flight cases, with Rentman lookup |
 | **Quote Pricer** | Price list with margins and quotes, exported to Rentman |
+| **Network Tool** | Audit of the flypack network (UniFi and MikroTik) for Dante, multicast, VLANs and STP |
 
 The app is built with Electron and updates itself from this repo's GitHub Releases.
 
@@ -15,7 +16,7 @@ The app is built with Electron and updates itself from this repo's GitHub Releas
 ```
 apps/desktop/      the Electron app (TypeScript): launcher, tool windows, app:// protocol, secrets, updates
 tools/<id>/        one folder per tool: tool.json (manifest and policy), web/ (its pages), optional api.js
-                   (main-process code), tests/
+                   (main-process code), tests/. A tool with TypeScript (network-tool) compiles src/ to out/.
 scripts/           repo scripts (secret and personal-data scanner)
 ```
 
@@ -52,8 +53,8 @@ feat(smoelenboek): add camera capture
 fix(desktop): keep the window size after an update
 ```
 
-Scopes are the package names: `desktop`, `smoelenboek`, `content-card-studio`, `quote-pricer`, plus `repo` and
-`deps`. Use `!` (`feat!:`) for a breaking change.
+Scopes are the package names: `desktop`, `smoelenboek`, `content-card-studio`, `quote-pricer`, `network-tool`, plus
+`repo` and `deps`. Use `!` (`feat!:`) for a breaking change.
 
 [release-please](https://github.com/googleapis/release-please) keeps a release PR open that bumps the version and
 writes `CHANGELOG.md` from those commits. Merging it starts `.github/workflows/release.yml`, which waits for approval
