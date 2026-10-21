@@ -6,6 +6,7 @@ playwright-report
 test-results
 .turbo
 CHANGELOG.md
+.release-please-manifest.json
 
 # CRLF is pinned by .gitattributes for these; Prettier defaults to LF
 *.bat
