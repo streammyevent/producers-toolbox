@@ -29,8 +29,8 @@ publish:
 win:
   target: [{ target: nsis, arch: [x64] }]
   icon: build/icon.ico
-  # Signing (Azure Artifact Signing, azureSignOptions) is configured by .github/workflows/release.yml from repository
-  # variables. Its publisherName ends up in app-update.yml, and electron-updater checks every update against it.
+  # Signing (Azure Artifact Signing, azureSignOptions) is set by .github/workflows/release.yml, so local builds stay
+  # unsigned. Its publisherName ends up in app-update.yml, and electron-updater checks every update against it.
 nsis:
   # No spaces: the name must equal the GitHub release asset name that latest.yml points at.
   artifactName: Producers-Toolbox-Setup-${version}.${ext}

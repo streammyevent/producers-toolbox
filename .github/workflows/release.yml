@@ -71,14 +71,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @producers-toolbox/desktop build
 
+      # The signing credentials are the company's (Stream My Event B.V.), shared with Holographics, under the same
+      # secret names.
       - name: Build, sign and notarize (macOS)
         if: runner.os == 'macOS'
         env:
-          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          CSC_LINK: ${{ secrets.MAC_CERTS }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_KEY_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
           printf '%s' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY"
@@ -91,23 +94,44 @@ jobs:
             spctl --assess --type execute "$app"
           done
 
+      - name: Prepare Windows signing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AZURE_CLIENT_CERT_PEM: ${{ secrets.AZURE_CLIENT_CERT_PEM }}
+        run: |
+          # The certificate and key (PEM) the Azure credential signs in with
+          $pem = Join-Path $env:RUNNER_TEMP "azure-signing.pem"
+          [IO.File]::WriteAllBytes($pem, [Convert]::FromBase64String($env:AZURE_CLIENT_CERT_PEM))
+          "AZURE_CLIENT_CERTIFICATE_PATH=$pem" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          # electron-builder installs the TrustedSigning module with Install-Module, which fails on the runner while
+          # bootstrapping the NuGet provider (electron-builder#8828). Install it with PSResourceGet instead and make
+          # electron-builder import it. Stops the build when a newer electron-builder no longer has these lines.
+          Install-PSResource -Name TrustedSigning -Repository PSGallery -TrustRepository
+          $f = node -p "require.resolve('app-builder-lib/out/codeSign/windowsSignAzureManager.js', { paths: [require('path').dirname(require.resolve('electron-builder/package.json', { paths: ['apps/desktop'] }))] })"
+          $installProvider = 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser'
+          $installModule = 'Install-Module -Name TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser'
+          $src = Get-Content $f -Raw
+          if (-not ($src.Contains($installProvider) -and $src.Contains($installModule))) {
+            throw "electron-builder changed; check whether $f still needs this patch"
+          }
+          $src.Replace($installProvider, 'exit 0').Replace($installModule, 'Import-Module TrustedSigning -ErrorAction Stop') | Set-Content $f
+
       - name: Build and sign (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          SIGN_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          SIGN_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          SIGN_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
-          PUBLISHER: ${{ vars.WINDOWS_PUBLISHER_NAME }}
         run: |
+          # Azure Artifact Signing account shared with Holographics. publisherName goes into app-update.yml, and
+          # electron-updater checks every downloaded update against it.
           pnpm --filter @producers-toolbox/desktop exec electron-builder --win --publish never `
-            "-c.win.azureSignOptions.endpoint=$env:SIGN_ENDPOINT" `
-            "-c.win.azureSignOptions.codeSigningAccountName=$env:SIGN_ACCOUNT" `
-            "-c.win.azureSignOptions.certificateProfileName=$env:SIGN_PROFILE" `
-            "-c.win.azureSignOptions.publisherName=$env:PUBLISHER"
+            "-c.win.azureSignOptions.endpoint=https://neu.codesigning.azure.net" `
+            "-c.win.azureSignOptions.codeSigningAccountName=holographics" `
+            "-c.win.azureSignOptions.certificateProfileName=holographics-ci-signing" `
+            "-c.win.azureSignOptions.publisherName=Stream My Event B.V."
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem apps/desktop/dist/*.exe | ForEach-Object {
             if ((Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid') { throw "$($_.Name) is not signed" }

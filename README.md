@@ -67,11 +67,12 @@ The release workflow needs these settings on the repository:
 |---|---|---|
 | Variable | `RELEASE_APP_CLIENT_ID` | GitHub App that opens the release PRs; releases are skipped until it is set |
 | Secret | `RELEASE_APP_PRIVATE_KEY` | That App's private key |
-| Environment `release` secret | `MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD` | Apple Developer ID Application certificate (.p12, base64) |
-| Environment `release` secret | `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | App Store Connect API key, for notarization |
-| Environment `release` secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | Azure app that may sign with Artifact Signing |
-| Variable | `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE` | Artifact Signing account and certificate profile |
-| Variable | `WINDOWS_PUBLISHER_NAME` | Exact subject name on the signing certificate; updates are checked against it |
+| Environment `release` secret | `MAC_CERTS`, `MAC_CERTS_PASSWORD` | Apple Developer ID Application certificate (.p12, base64) |
+| Environment `release` secret | `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_KEY_ISSUER`, `APPLE_TEAM_ID` | App Store Connect API key, for notarization |
+| Environment `release` secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_CERT_PEM` | Azure app (certificate login, PEM as base64) that may sign with Artifact Signing |
+
+These are the company's signing credentials, shared with Holographics under the same names. The Windows signing
+account (`holographics`, profile `holographics-ci-signing`, publisher Stream My Event B.V.) is set in `release.yml`.
 
 Users of the separate apps that the Toolbox replaces move their data with [docs/MIGRATION.md](docs/MIGRATION.md).
 
