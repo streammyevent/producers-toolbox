@@ -2,7 +2,7 @@
 appId: com.streammyevent.producers-toolbox
 # The userData folder name (src/main/main.js, build/installer.nsh): never rename it, or users lose their data.
 productName: Producers Toolbox
-copyright: Copyright © 2026 Stream My Event
+copyright: Copyright © 2026 Stream My Event B.V. and VK Media
 directories:
   output: dist
   buildResources: build

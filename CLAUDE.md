@@ -66,6 +66,8 @@ Use Node 24 (`.nvmrc`). The shell may have `ELECTRON_RUN_AS_NODE=1` set, which m
   package would silently replace the root one.
 - Tool web code is classic `<script>` files that share globals. Declare a shared global in `eslint.config.mjs` only for
   the files that use it, never for the file that defines it (`no-redeclare`).
+- All rights reserved (`LICENSE`: Stream My Event B.V. and VK Media). A vendored file or bundled font ships with its
+  own license text next to it, and the `LICENSE` list of third-party files stays up to date.
 - `electron-builder.yml`: never change `appId` or `productName`. `productName` is the userData folder name, and
   `appId` is what Windows knows the installed app by.
 

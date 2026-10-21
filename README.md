@@ -82,4 +82,7 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
 ## License
 
-To be decided. Until a license is added, all rights are reserved.
+All rights reserved by Stream My Event B.V. and VK Media. The source is published for reference, without a license to
+use, copy or distribute it: see [LICENSE](LICENSE). Third-party fonts and libraries keep their own licenses.
+
+We do not accept contributions from outside Stream My Event at the moment.

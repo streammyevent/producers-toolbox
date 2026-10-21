@@ -1,0 +1,18 @@
+Copyright (c) 2026 Stream My Event B.V.
+Copyright (c) 2026 VK Media
+
+All rights reserved.
+
+The source code in this repository is published for reference. No license is
+granted to use, copy, modify, publish, distribute, sublicense or sell it, or to
+create derivative works from it, except where the law allows this without a
+license, and except for viewing and forking on GitHub under GitHub's Terms of
+Service.
+
+"Stream My Event", "SME" and the Stream My Event logo are trademarks of
+Stream My Event B.V.
+
+Third-party files keep their own licenses:
+- tools/*/web/fonts/ and apps/desktop/src/renderer/fonts/: SIL Open Font
+  License 1.1 (see the OFL-*.txt and LICENSE.TXT files next to the fonts)
+- tools/content-card-studio/web/vendor/: MIT (see the LICENSE-*.txt files there)
