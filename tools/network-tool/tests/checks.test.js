@@ -492,6 +492,58 @@ describe("RouterOS", () => {
     );
     assert.ok(has(res, "FAIL", "access ports with PVID 60 "));
   });
+  test("FCS errors count against the frames received", () => {
+    const fcs = (n) =>
+      edit((r) => {
+        const link = r["interface/ethernet/monitor"].find((l) => l.status === "link-ok").name;
+        Object.assign(
+          r["interface/ethernet"].find((e) => e.name === link),
+          { "rx-fcs-error": String(n), "rx-unicast": "500000000", "rx-multicast": "0", "rx-broadcast": "0" },
+        );
+      }).find((r) => r.msg.startsWith("errors"));
+    assert.strictEqual(fcs(1000).msg, "errors rx-fcs=1000, 1 in 500K frames: check cable/SFP");
+    assert.strictEqual(fcs(5).level, "INFO");
+  });
+});
+
+describe("port errors", () => {
+  /** runChecks with these rx counters on 48 Pro POE switch port 28; the error result for that port. */
+  const port28 = (rx_errors, rx_packets, counters = new Map(), now = "2026-10-06T12:00:00Z") => {
+    const scan = fixtureScan();
+    const sw = scan.unifi["stat/device"].find((d) => d.name === "48 Pro POE switch");
+    Object.assign(
+      sw.port_table.find((p) => p.port_idx === 28),
+      { rx_errors, rx_packets },
+    );
+    return runChecks(scan, seed, new Map(), now, counters).results.find(
+      (r) => r.where.startsWith("48 Pro POE switch port 28 ") && r.msg.startsWith("errors"),
+    );
+  };
+
+  test("1 bad frame in a million or worse warns, from 10 errors", () => {
+    const ok = port28(100, 500e6);
+    assert.deepStrictEqual([ok.level, ok.msg, ok.fix], ["INFO", "errors rx=100 tx=0, 1 in 5M frames", undefined]);
+    const bad = port28(1000, 500e6);
+    assert.deepStrictEqual([bad.level, bad.msg], ["WARN", "errors rx=1000 tx=0, 1 in 500K frames: check cable/SFP"]);
+    assert.ok(bad.fix);
+    assert.strictEqual(port28(5, 1000).level, "INFO"); // the few bad frames of a link-up
+    assert.strictEqual(port28(0, 1000), undefined);
+  });
+  test("a rise warns on the next scan", () => {
+    const counters = new Map();
+    assert.strictEqual(port28(103, 575e6, counters, "2026-10-06T12:00:00Z").level, "INFO");
+    const rise = port28(203, 576e6, counters, "2026-10-06T12:00:30Z");
+    assert.strictEqual(rise.level, "WARN");
+    startsWith(rise.msg, "errors rx=+100 tx=+0, 1 in 10K frames since ");
+  });
+  test("a reboot or a sample older than 5 minutes gives no rise", () => {
+    const counters = new Map();
+    port28(103, 575e6, counters, "2026-10-06T12:00:00Z");
+    assert.strictEqual(port28(3, 1e6, counters, "2026-10-06T12:00:30Z").level, "INFO");
+    const old = new Map();
+    port28(103, 575e6, old, "2026-10-06T12:00:00Z");
+    assert.strictEqual(port28(203, 576e6, old, "2026-10-06T12:06:00Z").level, "INFO");
+  });
 });
 
 describe("port change", () => {

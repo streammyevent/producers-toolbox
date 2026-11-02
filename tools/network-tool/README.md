@@ -73,7 +73,7 @@ The tool does not use a fixed VLAN plan. It reads the networks from UniFi and tr
 - Snooping without a querier or flooding on critical VLANs
 - Core STP priority 4096, flow control off
 - Pro AV: on switches that support it, every port that carries a Dante or GreenGo network, untagged or tagged on a trunk, uses a Pro AV Dante preset. The `dante_audio` preset puts DSCP 56 (PTP) and 46 (Dante audio, GreenGo voice) in strict-priority queues
-- Per port: speed on critical VLAN ports, half duplex, rx/tx errors, edge state
+- Per port: speed on critical VLAN ports, half duplex, rx/tx errors (see below), edge state
 - Clients: link-local (169.254.x) addresses, wireless clients on a critical VLAN
 
 **MikroTik switches** are found with a ping sweep, then by MikroTik OUI in the ARP table, or by their login challenge: SwOS puts the model name in it, RouterOS answers its REST API with a Basic challenge and a JSON error.
@@ -89,10 +89,12 @@ The tool does not use a fixed VLAN plan. It reads the networks from UniFi and tr
 - Links of 100M or slower: FAIL without strict-priority QoS for DSCP 56 and 46 (Dante PTP and audio), otherwise INFO
 - QoS in hardware, trust DSCP, DSCP 56 and 46 into strict-priority queues
 - VLAN filtering on, every bridge port switched in hardware (not by the CPU)
-- Flow control, half duplex, CRC errors
+- Flow control, half duplex, CRC errors (see below)
 - IGMP snooping on, querier off, querier seen upstream; learned groups
 - STP root is the flypack core; access ports are edge
 - Access PVIDs that are missing from the bridge VLAN table, and PVIDs that are not a UniFi network
+
+**Port errors** (UniFi and RouterOS). The switch counts errors until it reboots, so the tool looks at the rate. WARN at 10 errors or more and 1 bad frame in a million or worse, over the switch uptime or over the last 5 minutes. The 5-minute rate shows a port that starts to make errors on the next scan. Below that, the count shows as INFO.
 
 Configuration drift on RouterOS (VLAN filtering, QoS, hardware offload) is not fixed by crew: the fix tells them to report it.
 

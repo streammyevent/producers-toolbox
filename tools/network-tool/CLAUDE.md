@@ -12,9 +12,9 @@ except for one action: changing the untagged VLAN of a port on a RouterOS switch
     ping sweep, SwOS digest-auth client and literal parser, RouterOS REST client (`rosGet`), UniFi API client. Produces
     a `Scan`; each `Switch` is `os: "swos"` (`pages`) or `os: "routeros"` (`ros`, keyed by REST path).
   - `checks.ts`: pure functions over a `Scan`. `auditSwos` and `auditRouterOS` give the same message for the same
-    check; `swInfo()` gives id/MAC/IP for both. `runChecks(scan, equipment, known, now)` returns
-    `{ devices, results, seen }` and updates `known` (missing-device tracking). `networks()` derives VLAN names and
-    critical VLANs from UniFi.
+    check; `swInfo()` gives id/MAC/IP for both. `runChecks(scan, equipment, known, now, counters)` returns
+    `{ devices, results, seen }` and updates `known` (missing-device tracking) and `counters` (port error samples of
+    the last 5 minutes, for a rising error rate). `networks()` derives VLAN names and critical VLANs from UniFi.
   - `ports.ts`: the only write path. `portTable()` (per port: VLAN or trunk, link, connected devices, lock reason) and
     `planChange()` (the REST ops for a port change, or why not). Pure; `api.ts` runs the ops.
   - `creds.ts`: seal/unseal of the crew code file (PBKDF2-SHA256 600k, AES-GCM).

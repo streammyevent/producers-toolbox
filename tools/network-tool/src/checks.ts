@@ -46,6 +46,45 @@ type Nets = { nets: Map<number, string>; critical: Set<number>; subnets: Map<num
 const list = (xs: (string | number)[]) => xs.join(", ");
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+/** Port error counters from this app run, per device MAC and port: the last 5 minutes. */
+export type Counters = Map<string, { at: number; counts: [errors: number, frames: number][] }[]>;
+
+// 802.3 allows a bit error rate of 1e-10: about 1 bad frame per million full-size frames.
+const ERROR_LIMIT = 1e-6;
+// A link-up gives a few bad frames. Fewer than this does not show a bad cable.
+const ERROR_MIN = 10;
+const ERROR_WINDOW_MS = 5 * 60_000;
+const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+/**
+ * Error counters run until the switch reboots, so judge the rate: over the uptime, and since the oldest sample in the
+ * window, so a port that starts to make errors shows on the next scan.
+ */
+function portErrors(mem: Counters, at: number) {
+  return (key: string, port: string | number, names: string[], counts: [number, number][]) => {
+    const prev = (mem.get(key) ?? []).filter((s) => at - s.at <= ERROR_WINDOW_MS);
+    const rebooted = prev.some((s) => s.counts.some(([e, f], i) => e > counts[i][0] || f > counts[i][1]));
+    const hist = rebooted ? [] : prev;
+    mem.set(key, [...hist, { at, counts }]);
+    if (counts.every(([e]) => !e)) return;
+
+    const ratio = (c: [number, number][]) => Math.max(...c.map(([e, f]) => e / Math.max(f, e, 1)));
+    const bad = (c: [number, number][]) => c.some(([e, f]) => e >= ERROR_MIN && e / Math.max(f, e, 1) >= ERROR_LIMIT);
+    const show = (c: [number, number][], sign = "") =>
+      `errors ${names.map((n, i) => `${n}=${sign}${c[i][0]}`).join(" ")}, 1 in ${compact.format(Math.round(1 / ratio(c)))} frames`;
+    const fix = `Port ${port} shows transmission errors. Replace the cable or the SFP module.`;
+    const base = hist[0];
+    const rise = base && counts.map(([e, f], i): [number, number] => [e - base.counts[i][0], f - base.counts[i][1]]);
+    if (rise && bad(rise)) {
+      const since = time(new Date(base.at).toISOString());
+      return { level: "WARN" as const, msg: `${show(rise, "+")} since ${since}: check cable/SFP`, fix };
+    }
+    return bad(counts)
+      ? { level: "WARN" as const, msg: `${show(counts)}: check cable/SFP`, fix }
+      : { level: "INFO" as const, msg: show(counts) };
+  };
+}
+
 export function networks(u: Record<string, any[]> | null): Nets {
   const nets = new Map<number, string>();
   const subnets = new Map<number, string>();
@@ -70,11 +109,13 @@ export function runChecks(
   equipment: Equipment[],
   known: Known = new Map(),
   now = new Date().toISOString(),
+  counters: Counters = new Map(),
 ) {
   const results: Result[] = [];
   const devices: Device[] = [];
   const add = (level: Level, device: string, where: string, msg: string, fix?: string) =>
     results.push({ level, device, where, msg, fix });
+  const errors = portErrors(counters, Date.parse(now));
   const ctx = networks(scan.unifi);
 
   let queriers: Set<number> | null = null;
@@ -86,7 +127,7 @@ export function runChecks(
   if (scan.unifi && core) {
     // Queriers seen on the wire count too: any brand, any switch. Gear is known by base MAC before the client list.
     const wire = scan.wire && wireQueriers(scan.wire.obs, portCtx(scan, []).gear, vendor([]));
-    queriers = auditUnifi(scan.unifi, core, ctx, add, devices, wire);
+    queriers = auditUnifi(scan.unifi, core, ctx, add, devices, errors, wire);
   } else {
     devices.push({ id: "UniFi", title: "UniFi network", subtitle: scan.network.gateway, kind: "unifi" });
     add(
@@ -122,7 +163,7 @@ export function runChecks(
   }
   for (const sw of scan.switches) {
     if (sw.os === "swos") auditSwos(sw, queriers, core, ctx, add, devices);
-    else auditRouterOS(sw, queriers, core, ctx, add, devices);
+    else auditRouterOS(sw, queriers, core, ctx, add, devices, errors);
   }
 
   const seen = inventory(scan, equipment);
@@ -258,6 +299,7 @@ const seenLabel = (s: Seen) => [s.equipment?.type || s.vendor, s.name, s.ip ?? s
 // --- UniFi ------------------------------------------------------------------
 
 type Add = (level: Level, device: string, where: string, msg: string, fix?: string) => void;
+type PortErrors = ReturnType<typeof portErrors>;
 
 /** Network ids a UniFi port carries tagged, the way the UniFi UI reads tagged_vlan_mgmt. No override = all. */
 function taggedIds(o: any, lan: any[]): string[] {
@@ -273,6 +315,7 @@ function auditUnifi(
   ctx: Nets,
   add: Add,
   devices: Device[],
+  errors: PortErrors,
   wire?: Map<number, string[]>,
 ) {
   const lan = u["rest/networkconf"].filter((n) => n.purpose !== "wan");
@@ -407,14 +450,16 @@ function auditUnifi(
           "half duplex",
           `Port ${p.port_idx} runs half duplex. Replace the cable, or set the port to auto-negotiation.`,
         );
-      if (p.rx_errors || p.tx_errors)
-        add(
-          "WARN",
-          d.name,
-          tag,
-          `errors rx=${p.rx_errors} tx=${p.tx_errors}: check cable/SFP`,
-          `Port ${p.port_idx} shows transmission errors. Replace the cable or the SFP module.`,
-        );
+      const e = errors(
+        `${d.mac} ${p.port_idx}`,
+        p.port_idx,
+        ["rx", "tx"],
+        [
+          [p.rx_errors ?? 0, p.rx_packets ?? 0],
+          [p.tx_errors ?? 0, p.tx_packets ?? 0],
+        ],
+      );
+      if (e) add(e.level, d.name, tag, e.msg, e.fix);
       if (critical && ![undefined, null, "auto", "enabled"].includes(o.stp_edge_state))
         add("WARN", d.name, tag, "critical VLAN port not edge");
     }
@@ -610,9 +655,10 @@ function auditRouterOS(
   ctx: Nets,
   add: Add,
   devices: Device[],
+  errors: PortErrors,
 ) {
   const ros = sw.ros;
-  const { id, ip, model, os } = swInfo(sw);
+  const { id, mac, ip, model, os } = swInfo(sw);
   const name = `${id} (${ip}, ${model}, ${os})`;
   const r: Add = (level, _device, where, msg, fix) => add(level, id, where, msg, fix);
   const web = `Open http://${ip} in the browser, log in and click WebFig.`;
@@ -680,15 +726,10 @@ function auditRouterOS(
   if (links.some((l) => l["full-duplex"] === "false"))
     r("FAIL", id, name, "half duplex on an active port", "Replace the cable on the port that runs half duplex.");
   for (const l of links) {
-    const errs = Number(eth.get(l.name)?.["rx-fcs-error"] ?? 0);
-    if (errs)
-      r(
-        "WARN",
-        id,
-        `${id} ${l.name}`,
-        `errors rx-fcs=${errs}: check cable/SFP`,
-        `Port ${l.name} shows transmission errors. Replace the cable or the SFP module.`,
-      );
+    const e = eth.get(l.name) ?? {};
+    const frames = ["rx-unicast", "rx-multicast", "rx-broadcast"].reduce((n, k) => n + Number(e[k] ?? 0), 0);
+    const res = errors(`${mac} ${l.name}`, l.name, ["rx-fcs"], [[Number(e["rx-fcs-error"] ?? 0), frames]]);
+    if (res) r(res.level, id, `${id} ${l.name}`, res.msg, res.fix);
   }
 
   // IGMP: snooping on, a UniFi switch is the querier.

@@ -11,6 +11,7 @@ import {
   portCtx,
   runChecks,
   swInfo,
+  type Counters,
   type Equipment,
   type Known,
   type Seen,
@@ -31,6 +32,7 @@ let changing = false;
 let running: Promise<object> | null = null;
 // Devices seen since the app started, to report the ones that disappear.
 const known: Known = new Map();
+const counters: Counters = new Map();
 let knownIface: string | undefined;
 // Expanded scan: what the wire showed in the last minutes, and whether crew declined the capture prompt.
 const wire: Memory = new Map();
@@ -86,6 +88,7 @@ async function audit(ctx: ToolContext, creds: Creds, iface: string | undefined, 
   if (s.network.name !== knownIface) {
     known.clear();
     wire.clear();
+    counters.clear();
   }
   knownIface = s.network.name;
   if (heard) {
@@ -108,7 +111,7 @@ async function audit(ctx: ToolContext, creds: Creds, iface: string | undefined, 
       errors: heard.errors,
     };
   }
-  const { devices, results, seen, networks } = runChecks(s, equipment(ctx), known);
+  const { devices, results, seen, networks } = runChecks(s, equipment(ctx), known, new Date().toISOString(), counters);
   lastSeen = seen;
   lastScan = s;
   return {
