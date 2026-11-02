@@ -102,6 +102,7 @@ async function scan() {
   try {
     last = await call("audit.run", $("#iface").value, expanded.get());
     if (!editing) render(last);
+    if ($("#findDlg").open) findHits();
   } catch (err) {
     if (!(await call("status.get").catch(() => ({ hasLogins: true }))).hasLogins) return showSetup();
     showMessage("FAIL", "SCAN FAILED", err.message);
@@ -137,6 +138,7 @@ function render(d) {
   const n = d.network;
   $("#net").textContent = `${n.name} · ${n.address} · gateway ${n.gateway}`;
   $("#when").textContent = `Last scan ${new Date(d.scannedAt).toLocaleTimeString()}`;
+  $("#find").hidden = false;
 
   const fails = d.results.filter((r) => r.level === "FAIL").length;
   const warns = d.results.filter((r) => r.level === "WARN").length;
@@ -221,17 +223,19 @@ function render(d) {
 }
 
 const offline = (rows) => rows.some((r) => r.level === "INFO" && r.msg.startsWith("offline"));
+const issuesOf = (rows) => rows.filter((r) => r.level === "FAIL" || r.level === "WARN");
+const tone = (rows) => (issuesOf(rows).length ? worst(rows) : offline(rows) ? "INFO" : "PASS");
 
-function item({ dev, rows, level }) {
-  const issues = rows.filter((r) => r.level === "FAIL" || r.level === "WARN");
+function item({ dev, rows }) {
+  const issues = issuesOf(rows);
   const status = issues.length
     ? `${issues[0].msg}${issues.length > 1 ? ` · +${issues.length - 1} more` : ""}`
     : offline(rows)
       ? "Offline"
       : "OK";
-  const tone = issues.length ? level : offline(rows) ? "INFO" : "PASS";
-  return `<button class="item" data-id="${esc(dev.id)}" aria-pressed="${dev.id === selected}"><span class="dot ${tone}"></span>
-    <span class="body"><span class="title">${esc(dev.title)}</span><span class="sub">${esc(dev.subtitle)}</span><span class="status ${tone}">${esc(status)}</span></span></button>`;
+  const t = tone(rows);
+  return `<button class="item" data-id="${esc(dev.id)}" aria-pressed="${dev.id === selected}"><span class="dot ${t}"></span>
+    <span class="body"><span class="title">${esc(dev.title)}</span><span class="sub">${esc(dev.subtitle)}</span><span class="status ${t}">${esc(status)}</span></span></button>`;
 }
 
 function showPanel(items) {
@@ -351,6 +355,112 @@ function wirePorts(dev, items) {
     }
   };
 }
+
+// --- Search (Cmd+K / Ctrl+K) ------------------------------------------------
+
+const MAX_HITS = 50;
+let hits = [],
+  active = 0;
+
+function openFind() {
+  if (!last) return;
+  if (!$("#findDlg").open) $("#findDlg").showModal();
+  $("#q").select();
+  findHits();
+}
+
+// Every word must match: name, type, vendor, MAC (with or without colons), IP, port or VLAN.
+function findHits() {
+  const words = $("#q").value.toLowerCase().split(/\s+/).filter(Boolean);
+  const seen = new Map(last.seen.map((s) => [s.mac, s]));
+  const prev = hits[active]?.dev.id;
+  hits = last.devices
+    .map((dev) => ({ dev, s: seen.get(dev.id), rows: last.results.filter((r) => r.device === dev.id) }))
+    .filter(({ dev, s }) => {
+      const text = [dev.title, dev.subtitle];
+      if (s) {
+        text.push(s.mac, s.mac.replaceAll(":", ""), s.vendor, s.equipment?.type);
+        for (const l of s.links ?? []) text.push(l.port, vname(l.vlan), ...l.ips);
+      }
+      const hay = text.join(" ").toLowerCase();
+      return words.every((w) => hay.includes(w));
+    })
+    .sort((a, b) => KIND[a.dev.kind] - KIND[b.dev.kind] || a.dev.title.localeCompare(b.dev.title))
+    .slice(0, MAX_HITS);
+  active = Math.max(
+    0,
+    hits.findIndex((h) => h.dev.id === prev),
+  );
+  $("#hits").innerHTML = hits.length ? hits.map(hit).join("") : `<div class="none">No device matches.</div>`;
+  mark();
+}
+
+function hit({ dev, s, rows }, i) {
+  const what = s && (s.equipment?.type || s.vendor);
+  const sub = s ? [what !== dev.title && what, s.mac].filter(Boolean).join(" · ") : dev.subtitle;
+  const links = (s?.links ?? []).map(
+    (l) =>
+      `<span class="ln">${esc([l.port ?? "Port unknown", vname(l.vlan), l.ips.join(", ")].filter(Boolean).join(" · "))}</span>`,
+  );
+  return `<div class="item hit" role="option" id="hit${i}" data-i="${i}"><span class="dot ${tone(rows)}"></span>
+    <span class="body"><span class="title">${esc(dev.title)}</span><span class="sub">${esc(sub)}</span>${links.join("")}</span></div>`;
+}
+
+function mark() {
+  $("#hits")
+    .querySelectorAll(".hit")
+    .forEach((el) => el.setAttribute("aria-selected", Number(el.dataset.i) === active));
+  if (hits.length) $("#q").setAttribute("aria-activedescendant", `hit${active}`);
+  else $("#q").removeAttribute("aria-activedescendant");
+  $(`#hit${active}`)?.scrollIntoView({ block: "nearest" });
+}
+
+function pick(h) {
+  if (!h) return;
+  selected = h.dev.id;
+  selPort = null;
+  editing = false;
+  $("#findDlg").close();
+  render(last);
+  const b = $(`#main button.item[aria-pressed="true"]`);
+  b?.focus({ preventScroll: true });
+  const narrow = matchMedia("(max-width: 900px)").matches;
+  (narrow ? $("#panel") : b)?.scrollIntoView({
+    block: narrow ? "start" : "center",
+    behavior: calm ? "auto" : "smooth",
+  });
+}
+
+$("#q").oninput = () => {
+  hits = [];
+  findHits();
+};
+$("#q").onkeydown = (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    active = Math.min(Math.max(active + (e.key === "ArrowDown" ? 1 : -1), 0), Math.max(hits.length - 1, 0));
+    mark();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    pick(hits[active]);
+  } else if (e.key === "Escape") {
+    // A search field clears itself on the first Esc; close at once instead.
+    e.preventDefault();
+    $("#findDlg").close();
+  }
+};
+$("#hits").onclick = (e) => {
+  const el = e.target.closest(".hit");
+  if (el) pick(hits[Number(el.dataset.i)]);
+};
+$("#find").title = `Search devices (${/Mac/.test(navigator.platform) ? "⌘K" : "Ctrl+K"})`;
+$("#find").onclick = openFind;
+addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    openFind();
+  }
+});
 
 // --- Starfield --------------------------------------------------------------
 

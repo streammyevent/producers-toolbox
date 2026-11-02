@@ -437,6 +437,37 @@ describe("RouterOS", () => {
       [],
     );
   });
+  test("links: edge port per VLAN, UniFi port as fallback, IPs from the wire", () => {
+    const scan = rosScan();
+    scan.wire = {
+      obs: [{ kind: "arp", vlan: 60, ip: "10.60.0.5", mac: "00:1d:c1:22:7c:e2", at: 0 }],
+      capture: "",
+      packets: 0,
+      errors: [],
+    };
+    const { seen, results } = runChecks(scan, seed);
+    const links = (mac) => seen.find((s) => s.mac === mac).links;
+    // The MikroTik edge port, not UniFi's port; the VLAN 1 entry is only on uplinks.
+    assert.deepStrictEqual(links("c8:a3:62:31:45:81"), [
+      { vlan: 1, ips: [] },
+      { vlan: 30, ips: ["192.168.31.139"], port: "SWITCH05 · ether3" },
+    ]);
+    // Uplinks (all SFP+ ports in this flypack) see network gear, so they are never a device's port.
+    assert.deepStrictEqual(
+      seen.flatMap((s) => s.links.filter((l) => /sfp/.test(l.port ?? ""))),
+      [],
+    );
+    // No current IP in UniFi: its last_ip, marked.
+    assert.deepStrictEqual(links("7c:2e:0d:16:c7:95"), [
+      { vlan: 30, ips: ["192.168.28.213 (last known)"], port: "48 Pro POE switch · Port 32 (Recorder 1)" },
+    ]);
+    assert.strictEqual(links("ba:fa:be:45:20:3c")[0].port, "SME - Regieset Klein 2M/E · Wi-Fi");
+    // An IP seen on the wire now wins over last_ip (169.254.89.195), and the checks never get last_ip.
+    assert.deepStrictEqual(links("00:1d:c1:22:7c:e2")[0].ips, ["10.60.0.5"]);
+    assert.strictEqual(seen.find((s) => s.mac === "7c:2e:0d:16:c7:95").ip, undefined);
+    assert.ok(results.some((r) => r.device === "c8:a3:62:31:45:81" && r.msg.includes("SWITCH05 · ether3")));
+    assert.ok(results.some((r) => r.device === "7c:2e:0d:16:c7:95" && r.msg.includes("192.168.28.213 (last known)")));
+  });
   test("VLAN filtering off", () => {
     assert.ok(
       has(

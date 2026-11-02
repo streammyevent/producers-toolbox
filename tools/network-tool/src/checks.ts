@@ -38,7 +38,10 @@ export type Seen = {
   wired: boolean;
   fromUnifi: boolean;
   equipment?: Equipment;
+  /** Per VLAN: the IPs and the port the MAC is connected to. Set by runChecks. */
+  links?: Link[];
 };
+export type Link = { vlan: number; ips: string[]; port?: string };
 type Tracked = { device: string; label: string; vlan: number; fromUnifi: boolean };
 export type Known = Map<string, Tracked & { at: string; misses: number }>;
 type Nets = { nets: Map<number, string>; critical: Set<number>; subnets: Map<number, string> };
@@ -168,6 +171,8 @@ export function runChecks(
 
   const seen = inventory(scan, equipment);
   const owner = owners(scan, seen);
+  const pctx = portCtx(scan, seen);
+  locate(scan, seen, pctx.gear);
   for (const s of seen) {
     if (owner.has(s.mac)) continue;
     const what = s.equipment?.type || s.vendor;
@@ -184,7 +189,8 @@ export function runChecks(
       s.mac,
       [
         s.mac,
-        s.ip,
+        ...(s.links?.flatMap((l) => l.ips) ?? []),
+        ...new Set(s.links?.map((l) => l.port)),
         vlanName(ctx, s.vlan),
         s.vendor,
         s.wired ? "wired" : "wireless",
@@ -199,7 +205,6 @@ export function runChecks(
   if (scan.wire) {
     const id = "Expanded scan";
     devices.push({ id, title: id, subtitle: `What ${scan.network.name} sees on the wire`, kind: "capture" });
-    const pc = portCtx(scan, seen);
     const coreName = scan.unifi?.["stat/device"].find((d) => d.mac === core)?.name;
     wireChecks(
       scan.wire,
@@ -207,8 +212,8 @@ export function runChecks(
         nets: ctx.nets,
         subnets: ctx.subnets,
         gateways: new Set([...ctx.subnets.values()].map((c) => c.split("/")[0])),
-        gear: pc.gear,
-        name: (mac) => (mac ? (pc.gear(mac) ?? pc.label(mac)) : undefined),
+        gear: pctx.gear,
+        name: (mac) => (mac ? (pctx.gear(mac) ?? pctx.label(mac)) : undefined),
         vendor: vendor(seen),
         ipsOf: (mac) => seen.flatMap((s) => (s.mac === mac && s.ip ? [s.ip] : [])),
         macsOf: (ip) => seen.flatMap((s) => (s.ip === ip ? [s.mac] : [])),
@@ -219,7 +224,6 @@ export function runChecks(
   }
   // A switch or UniFi device also shows up as a client; its results go to its own row.
   for (const r of results) r.device = owner.get(r.device) ?? r.device;
-  const pctx = portCtx(scan, seen);
   for (const sw of scan.switches) {
     const dev = devices.find((d) => d.id === swInfo(sw).id);
     if (dev && sw.os === "routeros") dev.ports = portTable(sw.ros, pctx);
@@ -849,19 +853,9 @@ export function inventory(scan: Scan, equipment: Equipment[]): Seen[] {
       fromUnifi: true,
     });
   }
-  for (const sw of scan.switches) {
-    const hosts =
-      sw.os === "swos"
-        ? (sw.pages["!dhost"] ?? []).map((h: any) => ({
-            mac: normMac(h.adr.match(/../g).join(":")),
-            vlan: h.vid as number,
-          }))
-        : sw.ros["interface/bridge/host"]
-            .filter((h: any) => h.local === "false" && h.vid)
-            .map((h: any) => ({ mac: normMac(h["mac-address"]), vlan: Number(h.vid) }));
-    for (const { mac, vlan } of hosts)
+  for (const sw of scan.switches)
+    for (const { mac, vlan } of hostEntries(sw))
       if (!byMac.has(mac)) byMac.set(mac, { mac, vlan, wired: true, fromUnifi: false });
-  }
   const { nets } = networks(scan.unifi);
   // A CRS3xx sends BPDUs from per-port MACs just above its base MAC; count those as the switch itself.
   const bases = scan.switches.map((sw) => parseInt(swInfo(sw).mac.replaceAll(":", ""), 16));
@@ -876,6 +870,72 @@ export function inventory(scan: Scan, equipment: Equipment[]): Seen[] {
     s.network = nets.get(s.vlan);
   }
   return [...byMac.values()].sort((a, b) => a.vlan - b.vlan || a.mac.localeCompare(b.mac));
+}
+
+/** The MACs a switch learned on its ports, with VLAN and port name. */
+function hostEntries(sw: Switch): { mac: string; vlan: number; port?: string }[] {
+  if (sw.os === "swos") {
+    const nm: string[] = sw.pages.link?.nm ?? [];
+    // ponytail: the `prt` port index is not checked on a SwOS switch yet; without it the UniFi location applies
+    return (sw.pages["!dhost"] ?? []).map((h: any) => ({
+      mac: normMac(h.adr.match(/../g).join(":")),
+      vlan: h.vid as number,
+      port: typeof h.prt === "number" ? (nm[h.prt] ? hexstr(nm[h.prt]) : `Port${h.prt + 1}`) : undefined,
+    }));
+  }
+  return sw.ros["interface/bridge/host"]
+    .filter((h: any) => h.local === "false" && h.vid)
+    .map((h: any) => ({ mac: normMac(h["mac-address"]), vlan: Number(h.vid), port: h["on-interface"] as string }));
+}
+
+/**
+ * Where each MAC is connected, per VLAN. The port is the switch port where the MAC is learned and no network gear is:
+ * an uplink always sees the core or the next switch. Without such a port, UniFi's location of the client is used.
+ */
+function locate(scan: Scan, seen: Seen[], gear: (mac: string) => string | undefined) {
+  const links = new Map<string, Map<number, Link>>();
+  const link = (mac: string, vlan: number) => {
+    const byVlan = links.get(mac) ?? links.set(mac, new Map()).get(mac)!;
+    return byVlan.get(vlan) ?? byVlan.set(vlan, { vlan, ips: [] }).get(vlan)!;
+  };
+  const addIp = (l: Link, ip?: string | false) => ip && !l.ips.includes(ip) && l.ips.push(ip);
+  for (const sw of scan.switches) {
+    const id = swInfo(sw).id;
+    const hosts = hostEntries(sw);
+    const uplinks = new Set(hosts.filter((h) => h.port && gear(h.mac)).map((h) => h.port));
+    for (const h of hosts) {
+      const l = link(h.mac, h.vlan);
+      // ponytail: first edge port wins; two edge ports for one MAC and VLAN means a stale host table
+      if (h.port && !uplinks.has(h.port)) l.port ??= `${id} · ${h.port}`;
+    }
+  }
+  for (const o of scan.wire?.obs ?? []) if (o.kind === "arp") addIp(link(o.mac, o.vlan), o.ip);
+  const devs = new Map<string, any>((scan.unifi?.["stat/device"] ?? []).map((d) => [d.mac, d]));
+  const clients = new Map<string, any>((scan.unifi?.["stat/sta"] ?? []).map((c) => [c.mac, c]));
+  for (const s of seen) {
+    const l = link(s.mac, s.vlan);
+    const c = clients.get(s.mac);
+    addIp(l, s.ip);
+    addIp(l, s.mac === scan.network.mac && scan.network.address);
+    // UniFi leaves `ip` empty when the gateway does not talk to the client now (always on a vlan-only network).
+    // `last_ip` can be a lease from an earlier event, so it only shows here, marked, and never goes into the checks.
+    if (!l.ips.length && c?.last_ip) l.ips.push(`${c.last_ip} (last known)`);
+    l.port ??= unifiPort(c, devs);
+    s.links = [...links.get(s.mac)!.values()].sort((a, b) => a.vlan - b.vlan);
+  }
+}
+
+/** The UniFi switch port or access point of a client. UniFi's port for a client behind a MikroTik is not used. */
+function unifiPort(c: any, devs: Map<string, any>) {
+  if (!c) return;
+  if (c.is_wired === false) {
+    const ap = devs.get(c.ap_mac);
+    return ap && `${ap.name} · Wi-Fi${c.essid ? ` (${c.essid})` : ""}`;
+  }
+  const sw = devs.get(c.sw_mac);
+  if (!sw || !c.sw_port) return;
+  const name = sw.port_table?.find((p: any) => p.port_idx === c.sw_port)?.name;
+  return `${sw.name} · Port ${c.sw_port}${name && name !== `Port ${c.sw_port}` ? ` (${name})` : ""}`;
 }
 
 export const allowed = (e: Equipment, s: Seen) =>

@@ -15,6 +15,8 @@ except for one action: changing the untagged VLAN of a port on a RouterOS switch
     check; `swInfo()` gives id/MAC/IP for both. `runChecks(scan, equipment, known, now, counters)` returns
     `{ devices, results, seen }` and updates `known` (missing-device tracking) and `counters` (port error samples of
     the last 5 minutes, for a rising error rate). `networks()` derives VLAN names and critical VLANs from UniFi.
+    `locate()` fills `Seen.links` (per VLAN: IPs and port). The port is the edge port: where the MAC is learned and
+    no network gear is (uplinks always see the core or the next switch). Without one, UniFi's client location.
   - `ports.ts`: the only write path. `portTable()` (per port: VLAN or trunk, link, connected devices, lock reason) and
     `planChange()` (the REST ops for a port change, or why not). Pure; `api.ts` runs the ops.
   - `creds.ts`: seal/unseal of the crew code file (PBKDF2-SHA256 600k, AES-GCM).
@@ -25,7 +27,8 @@ except for one action: changing the untagged VLAN of a port on a RouterOS switch
   - `equipment.json`: known MAC/OUI → type + allowed networks (names or VIDs). "Add unknown devices" writes additions
     to the tool's data folder on that computer; the list is this file plus those additions.
 - `web/`: `index.html`, `styles.css`, `app.js` (vanilla JS, retro/keygen theme with tracker music). A device list with
-  a detail panel; the selection survives the 30 s auto-scan. `vendor/chiptune3/` plays the `.xm` tracks in `music/`.
+  a detail panel; the selection survives the 30 s auto-scan. Cmd+K / Ctrl+K searches the devices of the last scan.
+  `vendor/chiptune3/` plays the `.xm` tracks in `music/`.
 - `scripts/` (dev and network-lead tools, not shipped): `make-creds.js` (`.env` → `creds.enc`), `dump.js` (captures
   sanitized fixtures), `sanitize.js`, `configure.py` + `ros.py` (standard RouterOS config, over the API on port 8728).
 - `tests/`: `checks.test.js` against `tests/fixtures/` (SwOS + UniFi from 2026-10-06, RouterOS + UniFi in
