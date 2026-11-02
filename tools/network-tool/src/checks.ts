@@ -1,9 +1,14 @@
 import { bits, hexstr, ipLE, normMac, type Scan, type Switch } from "./net";
 import { portTable, vidList, type Port, type PortCtx } from "./ports";
+import { wireChecks, wireQueriers } from "./wire";
 
 // A critical VLAN carries multicast-sensitive traffic. The UniFi network name decides it.
 export const CRITICAL = /dante|greengo|kvm|control/i;
 const CRITICAL_NAMES = "Dante, GreenGo, KVM or Control";
+// UniFi ports that carry these networks, untagged or tagged, need a Pro AV Dante preset. dante_audio puts DSCP 56
+// (PTP) and 46 (Dante audio, GreenGo voice) in strict-priority queues 7 and 6.
+// ponytail: any preset named *dante* counts; only dante_audio was read on a switch
+const PRO_AV = /dante|greengo/i;
 // Scans in a row without a device before it counts as missing; tables like ARP and SwOS dhost age out.
 const MISS_LIMIT = 2;
 const SPEED: Record<number, string> = { 0: "10M", 1: "100M", 2: "1G", 3: "10G", 4: "2.5G", 5: "5G", 7: "-" };
@@ -18,7 +23,7 @@ export type Device = {
   id: string;
   title: string;
   subtitle: string;
-  kind: "unifi" | "mikrotik" | "equipment";
+  kind: "unifi" | "capture" | "mikrotik" | "equipment";
   ports?: Port[];
 };
 /** `vlan` entries: a number matches the VID, a string matches the UniFi network name. */
@@ -33,18 +38,65 @@ export type Seen = {
   wired: boolean;
   fromUnifi: boolean;
   equipment?: Equipment;
+  /** Per VLAN: the IPs and the port the MAC is connected to. Set by runChecks. */
+  links?: Link[];
 };
+export type Link = { vlan: number; ips: string[]; port?: string };
 type Tracked = { device: string; label: string; vlan: number; fromUnifi: boolean };
 export type Known = Map<string, Tracked & { at: string; misses: number }>;
-type Nets = { nets: Map<number, string>; critical: Set<number> };
+type Nets = { nets: Map<number, string>; critical: Set<number>; subnets: Map<number, string> };
 
 const list = (xs: (string | number)[]) => xs.join(", ");
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+/** Port error counters from this app run, per device MAC and port: the last 5 minutes. */
+export type Counters = Map<string, { at: number; counts: [errors: number, frames: number][] }[]>;
+
+// 802.3 allows a bit error rate of 1e-10: about 1 bad frame per million full-size frames.
+const ERROR_LIMIT = 1e-6;
+// A link-up gives a few bad frames. Fewer than this does not show a bad cable.
+const ERROR_MIN = 10;
+const ERROR_WINDOW_MS = 5 * 60_000;
+const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+/**
+ * Error counters run until the switch reboots, so judge the rate: over the uptime, and since the oldest sample in the
+ * window, so a port that starts to make errors shows on the next scan.
+ */
+function portErrors(mem: Counters, at: number) {
+  return (key: string, port: string | number, names: string[], counts: [number, number][]) => {
+    const prev = (mem.get(key) ?? []).filter((s) => at - s.at <= ERROR_WINDOW_MS);
+    const rebooted = prev.some((s) => s.counts.some(([e, f], i) => e > counts[i][0] || f > counts[i][1]));
+    const hist = rebooted ? [] : prev;
+    mem.set(key, [...hist, { at, counts }]);
+    if (counts.every(([e]) => !e)) return;
+
+    const ratio = (c: [number, number][]) => Math.max(...c.map(([e, f]) => e / Math.max(f, e, 1)));
+    const bad = (c: [number, number][]) => c.some(([e, f]) => e >= ERROR_MIN && e / Math.max(f, e, 1) >= ERROR_LIMIT);
+    const show = (c: [number, number][], sign = "") =>
+      `errors ${names.map((n, i) => `${n}=${sign}${c[i][0]}`).join(" ")}, 1 in ${compact.format(Math.round(1 / ratio(c)))} frames`;
+    const fix = `Port ${port} shows transmission errors. Replace the cable or the SFP module.`;
+    const base = hist[0];
+    const rise = base && counts.map(([e, f], i): [number, number] => [e - base.counts[i][0], f - base.counts[i][1]]);
+    if (rise && bad(rise)) {
+      const since = time(new Date(base.at).toISOString());
+      return { level: "WARN" as const, msg: `${show(rise, "+")} since ${since}: check cable/SFP`, fix };
+    }
+    return bad(counts)
+      ? { level: "WARN" as const, msg: `${show(counts)}: check cable/SFP`, fix }
+      : { level: "INFO" as const, msg: show(counts) };
+  };
+}
+
 export function networks(u: Record<string, any[]> | null): Nets {
   const nets = new Map<number, string>();
-  for (const n of u?.["rest/networkconf"] ?? []) if (n.purpose !== "wan") nets.set(Number(n.vlan) || 1, n.name);
-  return { nets, critical: new Set([...nets].filter(([, name]) => CRITICAL.test(name)).map(([v]) => v)) };
+  const subnets = new Map<number, string>();
+  for (const n of u?.["rest/networkconf"] ?? []) {
+    if (n.purpose === "wan") continue;
+    nets.set(Number(n.vlan) || 1, n.name);
+    if (n.ip_subnet) subnets.set(Number(n.vlan) || 1, n.ip_subnet);
+  }
+  return { nets, critical: new Set([...nets].filter(([, name]) => CRITICAL.test(name)).map(([v]) => v)), subnets };
 }
 
 /** The flypack core is the largest online UniFi switch. */
@@ -60,17 +112,25 @@ export function runChecks(
   equipment: Equipment[],
   known: Known = new Map(),
   now = new Date().toISOString(),
+  counters: Counters = new Map(),
 ) {
   const results: Result[] = [];
   const devices: Device[] = [];
   const add = (level: Level, device: string, where: string, msg: string, fix?: string) =>
     results.push({ level, device, where, msg, fix });
+  const errors = portErrors(counters, Date.parse(now));
   const ctx = networks(scan.unifi);
 
   let queriers: Set<number> | null = null;
   const core = scan.unifi ? coreMac(scan.unifi) : undefined;
+  const vendor = (seen: Seen[]) => (mac: string) =>
+    mac
+      ? (seen.find((s) => s.mac === mac)?.vendor ?? equipment.find((e) => e.oui && mac.startsWith(e.oui))?.vendor)
+      : undefined;
   if (scan.unifi && core) {
-    queriers = auditUnifi(scan.unifi, core, ctx, add, devices);
+    // Queriers seen on the wire count too: any brand, any switch. Gear is known by base MAC before the client list.
+    const wire = scan.wire && wireQueriers(scan.wire.obs, portCtx(scan, []).gear, vendor([]));
+    queriers = auditUnifi(scan.unifi, core, ctx, add, devices, errors, wire);
   } else {
     devices.push({ id: "UniFi", title: "UniFi network", subtitle: scan.network.gateway, kind: "unifi" });
     add(
@@ -106,11 +166,13 @@ export function runChecks(
   }
   for (const sw of scan.switches) {
     if (sw.os === "swos") auditSwos(sw, queriers, core, ctx, add, devices);
-    else auditRouterOS(sw, queriers, core, ctx, add, devices);
+    else auditRouterOS(sw, queriers, core, ctx, add, devices, errors);
   }
 
   const seen = inventory(scan, equipment);
   const owner = owners(scan, seen);
+  const pctx = portCtx(scan, seen);
+  locate(scan, seen, pctx.gear);
   for (const s of seen) {
     if (owner.has(s.mac)) continue;
     const what = s.equipment?.type || s.vendor;
@@ -127,7 +189,8 @@ export function runChecks(
       s.mac,
       [
         s.mac,
-        s.ip,
+        ...(s.links?.flatMap((l) => l.ips) ?? []),
+        ...new Set(s.links?.map((l) => l.port)),
         vlanName(ctx, s.vlan),
         s.vendor,
         s.wired ? "wired" : "wireless",
@@ -139,9 +202,28 @@ export function runChecks(
   }
   auditEquipment(seen, ctx, add);
   track(known, scan, seen, ctx, now, add, devices, owner);
+  if (scan.wire) {
+    const id = "Expanded scan";
+    devices.push({ id, title: id, subtitle: `What ${scan.network.name} sees on the wire`, kind: "capture" });
+    const coreName = scan.unifi?.["stat/device"].find((d) => d.mac === core)?.name;
+    wireChecks(
+      scan.wire,
+      {
+        nets: ctx.nets,
+        subnets: ctx.subnets,
+        gateways: new Set([...ctx.subnets.values()].map((c) => c.split("/")[0])),
+        gear: pctx.gear,
+        name: (mac) => (mac ? (pctx.gear(mac) ?? pctx.label(mac)) : undefined),
+        vendor: vendor(seen),
+        ipsOf: (mac) => seen.flatMap((s) => (s.mac === mac && s.ip ? [s.ip] : [])),
+        macsOf: (ip) => seen.flatMap((s) => (s.ip === ip ? [s.mac] : [])),
+        core: coreName,
+      },
+      (level, where, msg, fix) => add(level, id, where, msg, fix),
+    );
+  }
   // A switch or UniFi device also shows up as a client; its results go to its own row.
   for (const r of results) r.device = owner.get(r.device) ?? r.device;
-  const pctx = portCtx(scan, seen);
   for (const sw of scan.switches) {
     const dev = devices.find((d) => d.id === swInfo(sw).id);
     if (dev && sw.os === "routeros") dev.ports = portTable(sw.ros, pctx);
@@ -223,14 +305,31 @@ const seenLabel = (s: Seen) => [s.equipment?.type || s.vendor, s.name, s.ip ?? s
 // --- UniFi ------------------------------------------------------------------
 
 type Add = (level: Level, device: string, where: string, msg: string, fix?: string) => void;
+type PortErrors = ReturnType<typeof portErrors>;
 
-function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, add: Add, devices: Device[]) {
+/** Network ids a UniFi port carries tagged, the way the UniFi UI reads tagged_vlan_mgmt. No override = all. */
+function taggedIds(o: any, lan: any[]): string[] {
+  const mgmt = o.tagged_vlan_mgmt ?? (["native", "disabled"].includes(o.forward) ? "block_all" : "auto");
+  if (mgmt === "block_all") return [];
+  const excluded: string[] = mgmt === "custom" ? (o.excluded_networkconf_ids ?? []) : [];
+  return lan.map((n) => n._id as string).filter((id) => id !== o.native_networkconf_id && !excluded.includes(id));
+}
+
+function auditUnifi(
+  u: Record<string, any[]>,
+  coreMacAddr: string,
+  ctx: Nets,
+  add: Add,
+  devices: Device[],
+  errors: PortErrors,
+  wire?: Map<number, string[]>,
+) {
   const lan = u["rest/networkconf"].filter((n) => n.purpose !== "wan");
   const criticalIds = new Set(lan.filter((n) => ctx.critical.has(Number(n.vlan) || 1)).map((n) => n._id as string));
   const igmp = u["rest/setting"].find((s) => s.key === "igmp_snooping") ?? {};
+  const avNames = new Map(lan.filter((n) => PRO_AV.test(n.name)).map((n) => [n._id as string, n.name as string]));
   const devs = new Map(u["stat/device"].map((d) => [d.mac as string, d]));
-  const core = devs.get(coreMacAddr).name as string;
-  const igmpFix = `In UniFi: Settings → Networks → Global Switch Settings → IGMP Snooping. Select all networks, and set only "${core}" as querier. ${ASK}`;
+  const igmpFix = `In UniFi: Settings → Networks → Global Switch Settings → IGMP Snooping. Set one online switch as querier for all critical VLANs. ${ASK}`;
 
   devices.push({ id: "UniFi", title: "UniFi network", subtitle: "VLANs, IGMP and multicast settings", kind: "unifi" });
   for (const d of devs.values())
@@ -257,30 +356,18 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
       `The tool finds the critical VLANs by their network name. In UniFi: Settings → Networks. Check that the Dante, GreenGo, KVM and Control networks have these names. ${ASK}`,
     );
 
-  // Policy: the flypack core switch is the only querier, on every VLAN.
-  const qs: string[] = igmp.querier_switches ?? [];
-  if (!qs.includes(coreMacAddr))
-    add("FAIL", "UniFi", "UniFi", `core switch ${core} is not a configured IGMP querier`, igmpFix);
-  for (const mac of qs.filter((m) => m !== coreMacAddr)) {
-    const d = devs.get(mac);
-    add(
-      "WARN",
-      "UniFi",
-      "UniFi",
-      `extra querier switch ${d ? d.name : mac} configured${!d || d.state !== 1 ? " (offline)" : ""}; keep only ${core}`,
-      igmpFix,
-    );
-  }
+  // Policy: one active querier per VLAN, on any switch. Only the active querier lists a VLAN.
   const queriers = new Map<number, string[]>();
   for (const d of devs.values()) {
     for (const q of d.igmp_snoop_table?.querier ?? []) {
-      if ((q.querier_ip ?? "").includes(":")) continue; // MLD (IPv6) entry
+      if (q.is_querier === false || (q.querier_ip ?? "").includes(":")) continue; // not active, or MLD (IPv6)
       queriers.set(q.vlan, [...(queriers.get(q.vlan) ?? []), d.name]);
     }
   }
+  for (const [vid, who] of wire ?? [])
+    for (const w of who) if (!queriers.get(vid)?.includes(w)) queriers.set(vid, [...(queriers.get(vid) ?? []), w]);
   for (const [vid, who] of queriers) {
-    if (who.length !== 1 || who[0] !== core)
-      add("WARN", "UniFi", "UniFi", `VLAN ${vid} querier is ${list(who)}, expected only ${core}`, igmpFix);
+    if (who.length > 1) add("WARN", "UniFi", "UniFi", `VLAN ${vid} has ${who.length} queriers: ${list(who)}`, igmpFix);
   }
   const missing = defined.filter((v) => !queriers.has(v));
   const criticalMissing = missing.filter((v) => ctx.critical.has(v));
@@ -291,8 +378,13 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
     `IGMP querier active on VLANs ${list([...queriers.keys()].sort((a, b) => a - b))}; critical VLANs without querier: ${criticalMissing.length ? list(criticalMissing) : "none"}`,
     criticalMissing.length ? `Audio, video and intercom on these VLANs can drop out. ${igmpFix}` : undefined,
   );
-  const other = missing.filter((v) => !criticalMissing.includes(v));
-  if (other.length) add("WARN", "UniFi", "UniFi", `other VLANs without querier: ${list(other)}`, igmpFix);
+  // network_ids are the VLANs selected for the querier, whatever querier_subscription_mode says.
+  const vids = new Map(lan.map((n) => [n._id as string, Number(n.vlan) || 1]));
+  const selected = new Set((igmp.network_ids ?? []).map((id: string) => vids.get(id)));
+  const unserved = missing.filter((v) => selected.has(v) && !ctx.critical.has(v));
+  if (unserved.length) add("WARN", "UniFi", "UniFi", `selected VLANs without querier: ${list(unserved)}`, igmpFix);
+  const other = missing.filter((v) => !selected.has(v) && !ctx.critical.has(v));
+  if (other.length) add("INFO", "UniFi", "UniFi", `other VLANs without querier: ${list(other)}`);
   const flooded = new Set<string>(igmp.flood_unknown_multicast_for_network_ids ?? []);
   if (igmp.enabled && criticalMissing.length && ![...criticalIds].some((id) => flooded.has(id)))
     add(
@@ -324,21 +416,37 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
         "flow control enabled",
         `In UniFi: Devices → ${d.name} → Settings. Turn off Flow Control.`,
       );
+    const proAv = (d.switch_caps?.max_qos_profiles ?? 0) > 0;
     const over = new Map((d.port_overrides ?? []).map((p: any) => [p.port_idx, p]));
     for (const p of d.port_table ?? []) {
       if (!p.up) continue;
       const o: any = over.get(p.port_idx) ?? {};
       const tag = `${d.name} port ${p.port_idx} (${p.name})`;
       const critical = criticalIds.has(o.native_networkconf_id);
-      if (critical && (p.speed ?? 1000) < 1000) {
-        const qos = o.qos_profile?.qos_policies;
+      const slow = (p.speed ?? 1000) < 1000;
+      const mode = o.qos_profile?.qos_profile_mode;
+      const preset = mode && mode !== "custom" ? (mode as string) : undefined; // the UniFi UI's test for Pro AV
+      const trunk = taggedIds(o, lan);
+      const av = [o.native_networkconf_id, ...trunk].filter((id) => avNames.has(id)).map((id) => avNames.get(id)!);
+      if (proAv && av.length && !preset?.includes("dante"))
         add(
           "WARN",
           d.name,
           tag,
-          qos?.length ? `critical VLAN port at ${p.speed}M` : `critical VLAN port at ${p.speed}M without QoS policy`,
-          `Port ${p.port_idx} runs at ${p.speed} Mbit/s. A critical VLAN needs 1 Gbit/s, or QoS with strict priority. Check the cable and the device. Use a 1 Gbit/s port on the device if it has one.`,
+          `${trunk.length ? "trunk" : "port"} with ${list(av)}${slow ? ` at ${p.speed}M` : ""} without Pro AV Dante`,
+          `In UniFi: Devices → ${d.name} → Port Manager. Select port ${p.port_idx}, set Pro AV to Dante Audio, then click Apply Changes.${trunk.length ? " If the device on this port does not use these VLANs, set Tagged VLAN Management to Block All instead." : ""} ${ASK}`,
         );
+      else if (critical && slow) {
+        const qos = o.qos_profile?.qos_policies;
+        if (preset) add("INFO", d.name, tag, `critical VLAN port at ${p.speed}M, Pro AV QoS "${preset}"`);
+        else
+          add(
+            "WARN",
+            d.name,
+            tag,
+            qos?.length ? `critical VLAN port at ${p.speed}M` : `critical VLAN port at ${p.speed}M without QoS policy`,
+            `Port ${p.port_idx} runs at ${p.speed} Mbit/s. A critical VLAN needs 1 Gbit/s, or QoS with strict priority. Check the cable and the device. Use a 1 Gbit/s port on the device if it has one.`,
+          );
       }
       if (p.full_duplex === false)
         add(
@@ -348,14 +456,16 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
           "half duplex",
           `Port ${p.port_idx} runs half duplex. Replace the cable, or set the port to auto-negotiation.`,
         );
-      if (p.rx_errors || p.tx_errors)
-        add(
-          "WARN",
-          d.name,
-          tag,
-          `errors rx=${p.rx_errors} tx=${p.tx_errors}: check cable/SFP`,
-          `Port ${p.port_idx} shows transmission errors. Replace the cable or the SFP module.`,
-        );
+      const e = errors(
+        `${d.mac} ${p.port_idx}`,
+        p.port_idx,
+        ["rx", "tx"],
+        [
+          [p.rx_errors ?? 0, p.rx_packets ?? 0],
+          [p.tx_errors ?? 0, p.tx_packets ?? 0],
+        ],
+      );
+      if (e) add(e.level, d.name, tag, e.msg, e.fix);
       if (critical && ![undefined, null, "auto", "enabled"].includes(o.stp_edge_state))
         add("WARN", d.name, tag, "critical VLAN port not edge");
     }
@@ -443,7 +553,7 @@ function auditSwos(
           id,
           name,
           `IGMP snooping ON, querier OFF, and no querier anywhere on VLAN ${list(missing)}: multicast/PTP gets pruned`,
-          "The UniFi core switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
+          "A UniFi switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
         );
       else r("PASS", id, name, "IGMP snooping on, querier provided upstream");
     } else if (s.igmq) {
@@ -451,7 +561,7 @@ function auditSwos(
         "FAIL",
         id,
         name,
-        "IGMP querier ON; the flypack core is the querier, turn this off",
+        "IGMP querier ON; a UniFi switch is the querier, turn this off",
         `${web} Go to the System tab. Turn off IGMP Querier, then click Apply.`,
       );
     }
@@ -551,9 +661,10 @@ function auditRouterOS(
   ctx: Nets,
   add: Add,
   devices: Device[],
+  errors: PortErrors,
 ) {
   const ros = sw.ros;
-  const { id, ip, model, os } = swInfo(sw);
+  const { id, mac, ip, model, os } = swInfo(sw);
   const name = `${id} (${ip}, ${model}, ${os})`;
   const r: Add = (level, _device, where, msg, fix) => add(level, id, where, msg, fix);
   const web = `Open http://${ip} in the browser, log in and click WebFig.`;
@@ -621,18 +732,13 @@ function auditRouterOS(
   if (links.some((l) => l["full-duplex"] === "false"))
     r("FAIL", id, name, "half duplex on an active port", "Replace the cable on the port that runs half duplex.");
   for (const l of links) {
-    const errs = Number(eth.get(l.name)?.["rx-fcs-error"] ?? 0);
-    if (errs)
-      r(
-        "WARN",
-        id,
-        `${id} ${l.name}`,
-        `errors rx-fcs=${errs}: check cable/SFP`,
-        `Port ${l.name} shows transmission errors. Replace the cable or the SFP module.`,
-      );
+    const e = eth.get(l.name) ?? {};
+    const frames = ["rx-unicast", "rx-multicast", "rx-broadcast"].reduce((n, k) => n + Number(e[k] ?? 0), 0);
+    const res = errors(`${mac} ${l.name}`, l.name, ["rx-fcs"], [[Number(e["rx-fcs-error"] ?? 0), frames]]);
+    if (res) r(res.level, id, `${id} ${l.name}`, res.msg, res.fix);
   }
 
-  // IGMP: snooping on, the flypack core is the querier.
+  // IGMP: snooping on, a UniFi switch is the querier.
   if (bridge["igmp-snooping"] !== "true")
     r(
       "FAIL",
@@ -646,7 +752,7 @@ function auditRouterOS(
       "FAIL",
       id,
       name,
-      "IGMP querier ON; the flypack core is the querier, turn this off",
+      "IGMP querier ON; a UniFi switch is the querier, turn this off",
       `${web} Go to Bridge → Bridge and open "${bridge.name}". In the IGMP Snooping section, turn off Multicast Querier, then click OK.`,
     );
   else if (queriers) {
@@ -657,7 +763,7 @@ function auditRouterOS(
         id,
         name,
         `IGMP snooping ON, querier OFF, and no querier anywhere on VLAN ${list(missing)}: multicast/PTP gets pruned`,
-        "The UniFi core switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
+        "A UniFi switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
       );
     else
       r(
@@ -747,19 +853,9 @@ export function inventory(scan: Scan, equipment: Equipment[]): Seen[] {
       fromUnifi: true,
     });
   }
-  for (const sw of scan.switches) {
-    const hosts =
-      sw.os === "swos"
-        ? (sw.pages["!dhost"] ?? []).map((h: any) => ({
-            mac: normMac(h.adr.match(/../g).join(":")),
-            vlan: h.vid as number,
-          }))
-        : sw.ros["interface/bridge/host"]
-            .filter((h: any) => h.local === "false" && h.vid)
-            .map((h: any) => ({ mac: normMac(h["mac-address"]), vlan: Number(h.vid) }));
-    for (const { mac, vlan } of hosts)
+  for (const sw of scan.switches)
+    for (const { mac, vlan } of hostEntries(sw))
       if (!byMac.has(mac)) byMac.set(mac, { mac, vlan, wired: true, fromUnifi: false });
-  }
   const { nets } = networks(scan.unifi);
   // A CRS3xx sends BPDUs from per-port MACs just above its base MAC; count those as the switch itself.
   const bases = scan.switches.map((sw) => parseInt(swInfo(sw).mac.replaceAll(":", ""), 16));
@@ -774,6 +870,72 @@ export function inventory(scan: Scan, equipment: Equipment[]): Seen[] {
     s.network = nets.get(s.vlan);
   }
   return [...byMac.values()].sort((a, b) => a.vlan - b.vlan || a.mac.localeCompare(b.mac));
+}
+
+/** The MACs a switch learned on its ports, with VLAN and port name. */
+function hostEntries(sw: Switch): { mac: string; vlan: number; port?: string }[] {
+  if (sw.os === "swos") {
+    const nm: string[] = sw.pages.link?.nm ?? [];
+    // ponytail: the `prt` port index is not checked on a SwOS switch yet; without it the UniFi location applies
+    return (sw.pages["!dhost"] ?? []).map((h: any) => ({
+      mac: normMac(h.adr.match(/../g).join(":")),
+      vlan: h.vid as number,
+      port: typeof h.prt === "number" ? (nm[h.prt] ? hexstr(nm[h.prt]) : `Port${h.prt + 1}`) : undefined,
+    }));
+  }
+  return sw.ros["interface/bridge/host"]
+    .filter((h: any) => h.local === "false" && h.vid)
+    .map((h: any) => ({ mac: normMac(h["mac-address"]), vlan: Number(h.vid), port: h["on-interface"] as string }));
+}
+
+/**
+ * Where each MAC is connected, per VLAN. The port is the switch port where the MAC is learned and no network gear is:
+ * an uplink always sees the core or the next switch. Without such a port, UniFi's location of the client is used.
+ */
+function locate(scan: Scan, seen: Seen[], gear: (mac: string) => string | undefined) {
+  const links = new Map<string, Map<number, Link>>();
+  const link = (mac: string, vlan: number) => {
+    const byVlan = links.get(mac) ?? links.set(mac, new Map()).get(mac)!;
+    return byVlan.get(vlan) ?? byVlan.set(vlan, { vlan, ips: [] }).get(vlan)!;
+  };
+  const addIp = (l: Link, ip?: string | false) => ip && !l.ips.includes(ip) && l.ips.push(ip);
+  for (const sw of scan.switches) {
+    const id = swInfo(sw).id;
+    const hosts = hostEntries(sw);
+    const uplinks = new Set(hosts.filter((h) => h.port && gear(h.mac)).map((h) => h.port));
+    for (const h of hosts) {
+      const l = link(h.mac, h.vlan);
+      // ponytail: first edge port wins; two edge ports for one MAC and VLAN means a stale host table
+      if (h.port && !uplinks.has(h.port)) l.port ??= `${id} · ${h.port}`;
+    }
+  }
+  for (const o of scan.wire?.obs ?? []) if (o.kind === "arp") addIp(link(o.mac, o.vlan), o.ip);
+  const devs = new Map<string, any>((scan.unifi?.["stat/device"] ?? []).map((d) => [d.mac, d]));
+  const clients = new Map<string, any>((scan.unifi?.["stat/sta"] ?? []).map((c) => [c.mac, c]));
+  for (const s of seen) {
+    const l = link(s.mac, s.vlan);
+    const c = clients.get(s.mac);
+    addIp(l, s.ip);
+    addIp(l, s.mac === scan.network.mac && scan.network.address);
+    // UniFi leaves `ip` empty when the gateway does not talk to the client now (always on a vlan-only network).
+    // `last_ip` can be a lease from an earlier event, so it only shows here, marked, and never goes into the checks.
+    if (!l.ips.length && c?.last_ip) l.ips.push(`${c.last_ip} (last known)`);
+    l.port ??= unifiPort(c, devs);
+    s.links = [...links.get(s.mac)!.values()].sort((a, b) => a.vlan - b.vlan);
+  }
+}
+
+/** The UniFi switch port or access point of a client. UniFi's port for a client behind a MikroTik is not used. */
+function unifiPort(c: any, devs: Map<string, any>) {
+  if (!c) return;
+  if (c.is_wired === false) {
+    const ap = devs.get(c.ap_mac);
+    return ap && `${ap.name} · Wi-Fi${c.essid ? ` (${c.essid})` : ""}`;
+  }
+  const sw = devs.get(c.sw_mac);
+  if (!sw || !c.sw_port) return;
+  const name = sw.port_table?.find((p: any) => p.port_idx === c.sw_port)?.name;
+  return `${sw.name} · Port ${c.sw_port}${name && name !== `Port ${c.sw_port}` ? ` (${name})` : ""}`;
 }
 
 export const allowed = (e: Equipment, s: Seen) =>

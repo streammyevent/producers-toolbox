@@ -3,7 +3,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const RANK = { FAIL: 0, WARN: 1, PASS: 2, INFO: 3 };
-const KIND = { unifi: 0, mikrotik: 1, equipment: 2 };
+const KIND = { unifi: 0, capture: 1, mikrotik: 2, equipment: 3 };
 const AUTO_MS = 30_000;
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let timer,
@@ -11,7 +11,8 @@ let timer,
   last = null,
   selected = null,
   selPort = null,
-  editing = false;
+  editing = false,
+  again = false;
 // Standard colour per VLAN type, matched on the UniFi network name. Others get a spare colour by VID.
 const VLAN_COLORS = [
   [/manag|default/i, "#9a98b0"],
@@ -26,6 +27,26 @@ const SPARE = ["#ff7ab6", "#ff8c1a", "#a0e000", "#7fb2ff", "#d8a070"];
 
 // Methods of the tool's api.js in the main process (apps/desktop/src/types/toolbox.d.ts).
 const call = (method, ...args) => window.toolbox.call(method, ...args);
+
+// Expanded scan: off by default, remembered on this computer.
+const expanded = {
+  get: () => {
+    try {
+      return localStorage.getItem("expanded") === "on";
+    } catch {
+      return false;
+    }
+  },
+  set: (v) => {
+    try {
+      localStorage.setItem("expanded", v ? "on" : "off");
+    } catch {}
+  },
+};
+function setExpandedButton(on) {
+  $("#expanded").setAttribute("aria-pressed", on);
+  $("#expanded").textContent = on ? "Expanded scan: on" : "Expanded scan: off";
+}
 
 async function start() {
   const s = await call("status.get");
@@ -77,10 +98,11 @@ async function scan() {
   $("#rescan").textContent = "Scanning";
   if (!last)
     $("#main").innerHTML =
-      `<div class="banner px busy"><div><div class="t blink">SCANNING...</div><small>Reading UniFi and the switches. This takes about 10 seconds.</small><div class="load"></div></div></div>`;
+      `<div class="banner px busy"><div><div class="t blink">SCANNING...</div><small>Reading UniFi and the switches. This takes about 10 seconds.${expanded.get() ? " The expanded scan can ask once for permission to capture packets." : ""}</small><div class="load"></div></div></div>`;
   try {
-    last = await call("audit.run", $("#iface").value);
+    last = await call("audit.run", $("#iface").value, expanded.get());
     if (!editing) render(last);
+    if ($("#findDlg").open) findHits();
   } catch (err) {
     if (!(await call("status.get").catch(() => ({ hasLogins: true }))).hasLogins) return showSetup();
     showMessage("FAIL", "SCAN FAILED", err.message);
@@ -88,7 +110,8 @@ async function scan() {
     scanning = false;
     $("#rescan").disabled = false;
     $("#rescan").textContent = "Scan again";
-    timer = setTimeout(auto, AUTO_MS);
+    timer = setTimeout(auto, again ? 0 : AUTO_MS);
+    again = false;
   }
 }
 
@@ -115,6 +138,7 @@ function render(d) {
   const n = d.network;
   $("#net").textContent = `${n.name} · ${n.address} · gateway ${n.gateway}`;
   $("#when").textContent = `Last scan ${new Date(d.scannedAt).toLocaleTimeString()}`;
+  $("#find").hidden = false;
 
   const fails = d.results.filter((r) => r.level === "FAIL").length;
   const warns = d.results.filter((r) => r.level === "WARN").length;
@@ -151,7 +175,7 @@ function render(d) {
     list.length ? `<div class="group">${title} (${list.length})</div>${list.map(item).join("")}` : "";
 
   $("#main").innerHTML = `
-    <div class="banner px ${overall}"><span class="dot ${overall}"></span><div><div class="t">${headline}</div><small>${sub} Scan took ${(d.ms / 1000).toFixed(1)} s. The page scans again every ${AUTO_MS / 1000} s.</small></div></div>
+    <div class="banner px ${overall}"><span class="dot ${overall}"></span><div><div class="t">${headline}</div><small>${sub} Scan took ${(d.ms / 1000).toFixed(1)} s. The page scans again every ${AUTO_MS / 1000} s.${expanded.get() ? " Expanded scan on." : ""}</small></div></div>
     <div class="split">
       <section class="list px" aria-label="Devices">
         ${tools.length ? `<div class="tools">${tools.join("")}<span id="learned"></span></div>` : ""}
@@ -199,17 +223,19 @@ function render(d) {
 }
 
 const offline = (rows) => rows.some((r) => r.level === "INFO" && r.msg.startsWith("offline"));
+const issuesOf = (rows) => rows.filter((r) => r.level === "FAIL" || r.level === "WARN");
+const tone = (rows) => (issuesOf(rows).length ? worst(rows) : offline(rows) ? "INFO" : "PASS");
 
-function item({ dev, rows, level }) {
-  const issues = rows.filter((r) => r.level === "FAIL" || r.level === "WARN");
+function item({ dev, rows }) {
+  const issues = issuesOf(rows);
   const status = issues.length
     ? `${issues[0].msg}${issues.length > 1 ? ` · +${issues.length - 1} more` : ""}`
     : offline(rows)
       ? "Offline"
       : "OK";
-  const tone = issues.length ? level : offline(rows) ? "INFO" : "PASS";
-  return `<button class="item" data-id="${esc(dev.id)}" aria-pressed="${dev.id === selected}"><span class="dot ${tone}"></span>
-    <span class="body"><span class="title">${esc(dev.title)}</span><span class="sub">${esc(dev.subtitle)}</span><span class="status ${tone}">${esc(status)}</span></span></button>`;
+  const t = tone(rows);
+  return `<button class="item" data-id="${esc(dev.id)}" aria-pressed="${dev.id === selected}"><span class="dot ${t}"></span>
+    <span class="body"><span class="title">${esc(dev.title)}</span><span class="sub">${esc(dev.subtitle)}</span><span class="status ${t}">${esc(status)}</span></span></button>`;
 }
 
 function showPanel(items) {
@@ -329,6 +355,112 @@ function wirePorts(dev, items) {
     }
   };
 }
+
+// --- Search (Cmd+K / Ctrl+K) ------------------------------------------------
+
+const MAX_HITS = 50;
+let hits = [],
+  active = 0;
+
+function openFind() {
+  if (!last) return;
+  if (!$("#findDlg").open) $("#findDlg").showModal();
+  $("#q").select();
+  findHits();
+}
+
+// Every word must match: name, type, vendor, MAC (with or without colons), IP, port or VLAN.
+function findHits() {
+  const words = $("#q").value.toLowerCase().split(/\s+/).filter(Boolean);
+  const seen = new Map(last.seen.map((s) => [s.mac, s]));
+  const prev = hits[active]?.dev.id;
+  hits = last.devices
+    .map((dev) => ({ dev, s: seen.get(dev.id), rows: last.results.filter((r) => r.device === dev.id) }))
+    .filter(({ dev, s }) => {
+      const text = [dev.title, dev.subtitle];
+      if (s) {
+        text.push(s.mac, s.mac.replaceAll(":", ""), s.vendor, s.equipment?.type);
+        for (const l of s.links ?? []) text.push(l.port, vname(l.vlan), ...l.ips);
+      }
+      const hay = text.join(" ").toLowerCase();
+      return words.every((w) => hay.includes(w));
+    })
+    .sort((a, b) => KIND[a.dev.kind] - KIND[b.dev.kind] || a.dev.title.localeCompare(b.dev.title))
+    .slice(0, MAX_HITS);
+  active = Math.max(
+    0,
+    hits.findIndex((h) => h.dev.id === prev),
+  );
+  $("#hits").innerHTML = hits.length ? hits.map(hit).join("") : `<div class="none">No device matches.</div>`;
+  mark();
+}
+
+function hit({ dev, s, rows }, i) {
+  const what = s && (s.equipment?.type || s.vendor);
+  const sub = s ? [what !== dev.title && what, s.mac].filter(Boolean).join(" · ") : dev.subtitle;
+  const links = (s?.links ?? []).map(
+    (l) =>
+      `<span class="ln">${esc([l.port ?? "Port unknown", vname(l.vlan), l.ips.join(", ")].filter(Boolean).join(" · "))}</span>`,
+  );
+  return `<div class="item hit" role="option" id="hit${i}" data-i="${i}"><span class="dot ${tone(rows)}"></span>
+    <span class="body"><span class="title">${esc(dev.title)}</span><span class="sub">${esc(sub)}</span>${links.join("")}</span></div>`;
+}
+
+function mark() {
+  $("#hits")
+    .querySelectorAll(".hit")
+    .forEach((el) => el.setAttribute("aria-selected", Number(el.dataset.i) === active));
+  if (hits.length) $("#q").setAttribute("aria-activedescendant", `hit${active}`);
+  else $("#q").removeAttribute("aria-activedescendant");
+  $(`#hit${active}`)?.scrollIntoView({ block: "nearest" });
+}
+
+function pick(h) {
+  if (!h) return;
+  selected = h.dev.id;
+  selPort = null;
+  editing = false;
+  $("#findDlg").close();
+  render(last);
+  const b = $(`#main button.item[aria-pressed="true"]`);
+  b?.focus({ preventScroll: true });
+  const narrow = matchMedia("(max-width: 900px)").matches;
+  (narrow ? $("#panel") : b)?.scrollIntoView({
+    block: narrow ? "start" : "center",
+    behavior: calm ? "auto" : "smooth",
+  });
+}
+
+$("#q").oninput = () => {
+  hits = [];
+  findHits();
+};
+$("#q").onkeydown = (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    active = Math.min(Math.max(active + (e.key === "ArrowDown" ? 1 : -1), 0), Math.max(hits.length - 1, 0));
+    mark();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    pick(hits[active]);
+  } else if (e.key === "Escape") {
+    // A search field clears itself on the first Esc; close at once instead.
+    e.preventDefault();
+    $("#findDlg").close();
+  }
+};
+$("#hits").onclick = (e) => {
+  const el = e.target.closest(".hit");
+  if (el) pick(hits[Number(el.dataset.i)]);
+};
+$("#find").title = `Search devices (${/Mac/.test(navigator.platform) ? "⌘K" : "Ctrl+K"})`;
+$("#find").onclick = openFind;
+addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    openFind();
+  }
+});
 
 // --- Starfield --------------------------------------------------------------
 
@@ -581,6 +713,15 @@ if (pref.get()) {
   addEventListener("keydown", resume);
 }
 
+setExpandedButton(expanded.get());
+$("#expanded").onclick = () => {
+  const on = !expanded.get();
+  expanded.set(on);
+  setExpandedButton(on);
+  // A scan that runs now uses the old setting: scan again right after it.
+  if (scanning) again = true;
+  else scan();
+};
 $("#rescan").onclick = () => {
   editing = false;
   scan();

@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import https from "node:https";
 import { networkInterfaces } from "node:os";
 import type { Creds } from "./creds";
+import type { Wire } from "./wire";
 
 export const MIKROTIK_OUI = [
   "48:8f:5a",
@@ -50,6 +51,8 @@ export type Scan = {
   unifiError?: string;
   switches: Switch[];
   switchErrors: { ip: string; msg: string }[];
+  /** Only with the expanded scan on. */
+  wire?: Wire;
 };
 
 // --- SwOS -------------------------------------------------------------------

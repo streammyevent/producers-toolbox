@@ -3,11 +3,25 @@
 // The scan state lives here while the app runs, so it survives closing the window.
 import fs from "node:fs";
 import path from "node:path";
-import { forget, learn, portCtx, runChecks, swInfo, type Equipment, type Known, type Seen } from "./checks";
+import { captureStatus, readNew, resetCapture, startCapture } from "./capture";
+import {
+  forget,
+  learn,
+  networks as unifiNets,
+  portCtx,
+  runChecks,
+  swInfo,
+  type Counters,
+  type Equipment,
+  type Known,
+  type Seen,
+} from "./checks";
 import { unseal, type Creds } from "./creds";
 import seed from "./equipment.json";
-import { interfaces, pickInterface, rosCall, rosGet, scan, type Scan } from "./net";
+import { contains, interfaces, pickInterface, rosCall, rosGet, scan, type Scan } from "./net";
 import { planChange, portTable } from "./ports";
+import { probe } from "./probe";
+import { age, decode, observe, observeUdp, type Memory, type Packet } from "./wire";
 
 const LOGINS = ["switchUser", "switchPass", "unifiUser", "unifiPass"] as const;
 const MAX_CREDS_FILE = 4096;
@@ -18,7 +32,15 @@ let changing = false;
 let running: Promise<object> | null = null;
 // Devices seen since the app started, to report the ones that disappear.
 const known: Known = new Map();
+const counters: Counters = new Map();
 let knownIface: string | undefined;
+// Expanded scan: what the wire showed in the last minutes, and whether crew declined the capture prompt.
+const wire: Memory = new Map();
+let declined = false;
+let lastDhcp = 0;
+let idle: NodeJS.Timeout | undefined;
+const DHCP_EVERY_MS = 5 * 60_000;
+const IDLE_MS = 2 * 60_000;
 
 function logins(ctx: ToolContext): Creds | null {
   const [switchUser, switchPass, unifiUser, unifiPass] = LOGINS.map((n) => ctx.secrets.get(n));
@@ -43,12 +65,53 @@ function localEquipment(ctx: ToolContext): Equipment[] {
 }
 const equipment = (ctx: ToolContext): Equipment[] => [...(seed as Equipment[]), ...localEquipment(ctx)];
 
-async function audit(ctx: ToolContext, creds: Creds, iface?: string) {
+function stopExpanded() {
+  clearTimeout(idle);
+  resetCapture();
+  wire.clear();
+  declined = false;
+}
+
+async function audit(ctx: ToolContext, creds: Creds, iface: string | undefined, expanded: boolean) {
   const t = performance.now();
-  const s = await scan(creds, iface);
-  if (s.network.name !== knownIface) known.clear();
+  clearTimeout(idle);
+  const net = expanded ? await pickInterface(iface) : null;
+  if (!net) stopExpanded();
+  else {
+    if (!declined) declined = !!(await startCapture(net.name, ctx.dataDir)).declined;
+    // The window can close without turning the scan off: stop capturing when nobody asks.
+    idle = setTimeout(stopExpanded, IDLE_MS);
+  }
+  const dhcp = !!net && Date.now() - lastDhcp > DHCP_EVERY_MS;
+  if (dhcp) lastDhcp = Date.now();
+  const [s, heard] = await Promise.all([scan(creds, iface), net ? probe(net, dhcp) : null]);
+  if (s.network.name !== knownIface) {
+    known.clear();
+    wire.clear();
+    counters.clear();
+  }
   knownIface = s.network.name;
-  const { devices, results, seen, networks } = runChecks(s, equipment(ctx), known);
+  if (heard) {
+    // Untagged frames are on the VLAN of this computer.
+    const own = [...unifiNets(s.unifi).subnets].find(([, c]) => contains(c, s.network.address))?.[0] ?? 1;
+    const frames = readNew();
+    observe(
+      wire,
+      frames.map(decode).filter((p): p is Packet => p !== null),
+      own,
+    );
+    for (const h of heard.heard) observeUdp(wire, { ...h, vlan: own });
+    age(wire, Date.now());
+    s.wire = {
+      obs: [...wire.values()],
+      capture: declined
+        ? "capture off: permission declined. Turn Expanded scan off and on to ask again"
+        : captureStatus(),
+      packets: frames.length,
+      errors: heard.errors,
+    };
+  }
+  const { devices, results, seen, networks } = runChecks(s, equipment(ctx), known, new Date().toISOString(), counters);
   lastSeen = seen;
   lastScan = s;
   return {
@@ -117,10 +180,10 @@ export const methods = {
     return true;
   },
 
-  async "audit.run"(ctx: ToolContext, iface: unknown) {
+  async "audit.run"(ctx: ToolContext, iface: unknown, expanded: unknown) {
     const creds = requireLogins(ctx);
     const name = interfaces().some((i) => i.name === iface) ? (iface as string) : undefined;
-    running ??= audit(ctx, creds, name).finally(() => (running = null));
+    running ??= audit(ctx, creds, name, expanded === true).finally(() => (running = null));
     return running;
   },
 

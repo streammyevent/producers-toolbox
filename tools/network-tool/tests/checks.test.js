@@ -174,6 +174,75 @@ describe("checks", () => {
     assert.ok(querier(fixtureScan()).endsWith("critical VLANs without querier: 40, 60"));
     assert.ok(querier(renamed("Dante", "Audio")).endsWith("critical VLANs without querier: 40"));
   });
+  test("Dante and GreenGo ports and trunks need a Pro AV Dante preset", () => {
+    const id = (name) => fixtureScan().unifi["rest/networkconf"].find((n) => n.name === name)._id;
+    // port 15: Greengo untagged; port 42: Default untagged, all VLANs tagged
+    const at100 = (idx, edit) => {
+      const scan = fixtureScan();
+      const sw = scan.unifi["stat/device"].find((d) => d.name === "48 Pro POE switch");
+      Object.assign(
+        sw.port_table.find((p) => p.port_idx === idx),
+        { up: true, speed: 100 },
+      );
+      edit(
+        sw.port_overrides.find((o) => o.port_idx === idx),
+        sw,
+      );
+      return runChecks(scan, seed)
+        .results.filter((r) => r.where.startsWith(`48 Pro POE switch port ${idx} `) && /QoS|Pro AV/.test(r.msg))
+        .map((r) => `${r.level} ${r.msg}`);
+    };
+    const preset = (qos_profile_mode) => (o) => (o.qos_profile = { qos_profile_mode, qos_policies: [] });
+    assert.deepStrictEqual(at100(15, preset("custom")), ["WARN port with Greengo at 100M without Pro AV Dante"]);
+    assert.deepStrictEqual(at100(15, preset("dante_audio")), [
+      'INFO critical VLAN port at 100M, Pro AV QoS "dante_audio"',
+    ]);
+    assert.deepStrictEqual(at100(42, preset("custom")), [
+      "WARN trunk with Dante, Greengo at 100M without Pro AV Dante",
+    ]);
+    assert.deepStrictEqual(at100(42, preset("dante_audio")), []);
+    assert.deepStrictEqual(
+      at100(42, (o) => (o.tagged_vlan_mgmt = "block_all")),
+      [],
+    );
+    assert.deepStrictEqual(
+      at100(42, (o) =>
+        Object.assign(o, { tagged_vlan_mgmt: "custom", excluded_networkconf_ids: [id("Dante"), id("Greengo")] }),
+      ),
+      [],
+    );
+    // a switch without Pro AV keeps the speed check
+    assert.deepStrictEqual(
+      at100(15, (o, sw) => (sw.switch_caps.max_qos_profiles = 0)),
+      ["WARN critical VLAN port at 100M without QoS policy"],
+    );
+  });
+  test("one IGMP querier per VLAN, on any switch", () => {
+    const unifi = (edit) => {
+      const scan = fixtureScan();
+      const devs = scan.unifi["stat/device"];
+      edit(
+        devs.find((d) => d.name === "48 Pro POE switch"),
+        devs.find((d) => d.name === "Switch Audio set"),
+      );
+      return verdicts(runChecks(scan, seed).results).filter((v) => v.split(" ")[1] === "UniFi");
+    };
+    const base = unifi(() => {});
+    const moved = unifi((core, other) => {
+      other.igmp_snoop_table = core.igmp_snoop_table;
+      delete core.igmp_snoop_table;
+    });
+    assert.deepStrictEqual(moved, base);
+    const twice = unifi((core, other) => (other.igmp_snoop_table = core.igmp_snoop_table));
+    assert.deepStrictEqual(
+      twice.filter((v) => !base.includes(v)),
+      [10, 20, 30].map((v) => `WARN UniFi VLAN ${v} has 2 queriers: Switch Audio set, 48 Pro POE switch`),
+    );
+    const gap = unifi(
+      (core) => (core.igmp_snoop_table.querier = core.igmp_snoop_table.querier.filter((q) => q.vlan !== 20)),
+    );
+    assert.ok(gap.includes("WARN UniFi selected VLANs without querier: 20"));
+  });
   test("no critical network name gives a warning", () => {
     const scan = renamed("Dante", "Audio");
     scan.unifi["rest/networkconf"] = scan.unifi["rest/networkconf"].map((n) =>
@@ -368,6 +437,37 @@ describe("RouterOS", () => {
       [],
     );
   });
+  test("links: edge port per VLAN, UniFi port as fallback, IPs from the wire", () => {
+    const scan = rosScan();
+    scan.wire = {
+      obs: [{ kind: "arp", vlan: 60, ip: "10.60.0.5", mac: "00:1d:c1:22:7c:e2", at: 0 }],
+      capture: "",
+      packets: 0,
+      errors: [],
+    };
+    const { seen, results } = runChecks(scan, seed);
+    const links = (mac) => seen.find((s) => s.mac === mac).links;
+    // The MikroTik edge port, not UniFi's port; the VLAN 1 entry is only on uplinks.
+    assert.deepStrictEqual(links("c8:a3:62:31:45:81"), [
+      { vlan: 1, ips: [] },
+      { vlan: 30, ips: ["192.168.31.139"], port: "SWITCH05 · ether3" },
+    ]);
+    // Uplinks (all SFP+ ports in this flypack) see network gear, so they are never a device's port.
+    assert.deepStrictEqual(
+      seen.flatMap((s) => s.links.filter((l) => /sfp/.test(l.port ?? ""))),
+      [],
+    );
+    // No current IP in UniFi: its last_ip, marked.
+    assert.deepStrictEqual(links("7c:2e:0d:16:c7:95"), [
+      { vlan: 30, ips: ["192.168.28.213 (last known)"], port: "48 Pro POE switch · Port 32 (Recorder 1)" },
+    ]);
+    assert.strictEqual(links("ba:fa:be:45:20:3c")[0].port, "SME - Regieset Klein 2M/E · Wi-Fi");
+    // An IP seen on the wire now wins over last_ip (169.254.89.195), and the checks never get last_ip.
+    assert.deepStrictEqual(links("00:1d:c1:22:7c:e2")[0].ips, ["10.60.0.5"]);
+    assert.strictEqual(seen.find((s) => s.mac === "7c:2e:0d:16:c7:95").ip, undefined);
+    assert.ok(results.some((r) => r.device === "c8:a3:62:31:45:81" && r.msg.includes("SWITCH05 · ether3")));
+    assert.ok(results.some((r) => r.device === "7c:2e:0d:16:c7:95" && r.msg.includes("192.168.28.213 (last known)")));
+  });
   test("VLAN filtering off", () => {
     assert.ok(
       has(
@@ -422,6 +522,58 @@ describe("RouterOS", () => {
       (r) => (r["interface/bridge/vlan"] = r["interface/bridge/vlan"].filter((v) => v["vlan-ids"] !== "60")),
     );
     assert.ok(has(res, "FAIL", "access ports with PVID 60 "));
+  });
+  test("FCS errors count against the frames received", () => {
+    const fcs = (n) =>
+      edit((r) => {
+        const link = r["interface/ethernet/monitor"].find((l) => l.status === "link-ok").name;
+        Object.assign(
+          r["interface/ethernet"].find((e) => e.name === link),
+          { "rx-fcs-error": String(n), "rx-unicast": "500000000", "rx-multicast": "0", "rx-broadcast": "0" },
+        );
+      }).find((r) => r.msg.startsWith("errors"));
+    assert.strictEqual(fcs(1000).msg, "errors rx-fcs=1000, 1 in 500K frames: check cable/SFP");
+    assert.strictEqual(fcs(5).level, "INFO");
+  });
+});
+
+describe("port errors", () => {
+  /** runChecks with these rx counters on 48 Pro POE switch port 28; the error result for that port. */
+  const port28 = (rx_errors, rx_packets, counters = new Map(), now = "2026-10-06T12:00:00Z") => {
+    const scan = fixtureScan();
+    const sw = scan.unifi["stat/device"].find((d) => d.name === "48 Pro POE switch");
+    Object.assign(
+      sw.port_table.find((p) => p.port_idx === 28),
+      { rx_errors, rx_packets },
+    );
+    return runChecks(scan, seed, new Map(), now, counters).results.find(
+      (r) => r.where.startsWith("48 Pro POE switch port 28 ") && r.msg.startsWith("errors"),
+    );
+  };
+
+  test("1 bad frame in a million or worse warns, from 10 errors", () => {
+    const ok = port28(100, 500e6);
+    assert.deepStrictEqual([ok.level, ok.msg, ok.fix], ["INFO", "errors rx=100 tx=0, 1 in 5M frames", undefined]);
+    const bad = port28(1000, 500e6);
+    assert.deepStrictEqual([bad.level, bad.msg], ["WARN", "errors rx=1000 tx=0, 1 in 500K frames: check cable/SFP"]);
+    assert.ok(bad.fix);
+    assert.strictEqual(port28(5, 1000).level, "INFO"); // the few bad frames of a link-up
+    assert.strictEqual(port28(0, 1000), undefined);
+  });
+  test("a rise warns on the next scan", () => {
+    const counters = new Map();
+    assert.strictEqual(port28(103, 575e6, counters, "2026-10-06T12:00:00Z").level, "INFO");
+    const rise = port28(203, 576e6, counters, "2026-10-06T12:00:30Z");
+    assert.strictEqual(rise.level, "WARN");
+    startsWith(rise.msg, "errors rx=+100 tx=+0, 1 in 10K frames since ");
+  });
+  test("a reboot or a sample older than 5 minutes gives no rise", () => {
+    const counters = new Map();
+    port28(103, 575e6, counters, "2026-10-06T12:00:00Z");
+    assert.strictEqual(port28(3, 1e6, counters, "2026-10-06T12:00:30Z").level, "INFO");
+    const old = new Map();
+    port28(103, 575e6, old, "2026-10-06T12:00:00Z");
+    assert.strictEqual(port28(203, 576e6, old, "2026-10-06T12:06:00Z").level, "INFO");
   });
 });
 
