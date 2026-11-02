@@ -4,6 +4,10 @@ import { portTable, vidList, type Port, type PortCtx } from "./ports";
 // A critical VLAN carries multicast-sensitive traffic. The UniFi network name decides it.
 export const CRITICAL = /dante|greengo|kvm|control/i;
 const CRITICAL_NAMES = "Dante, GreenGo, KVM or Control";
+// UniFi ports that carry these networks, untagged or tagged, need a Pro AV Dante preset. dante_audio puts DSCP 56
+// (PTP) and 46 (Dante audio, GreenGo voice) in strict-priority queues 7 and 6.
+// ponytail: any preset named *dante* counts; only dante_audio was read on a switch
+const PRO_AV = /dante|greengo/i;
 // Scans in a row without a device before it counts as missing; tables like ARP and SwOS dhost age out.
 const MISS_LIMIT = 2;
 const SPEED: Record<number, string> = { 0: "10M", 1: "100M", 2: "1G", 3: "10G", 4: "2.5G", 5: "5G", 7: "-" };
@@ -224,13 +228,21 @@ const seenLabel = (s: Seen) => [s.equipment?.type || s.vendor, s.name, s.ip ?? s
 
 type Add = (level: Level, device: string, where: string, msg: string, fix?: string) => void;
 
+/** Network ids a UniFi port carries tagged, the way the UniFi UI reads tagged_vlan_mgmt. No override = all. */
+function taggedIds(o: any, lan: any[]): string[] {
+  const mgmt = o.tagged_vlan_mgmt ?? (["native", "disabled"].includes(o.forward) ? "block_all" : "auto");
+  if (mgmt === "block_all") return [];
+  const excluded: string[] = mgmt === "custom" ? (o.excluded_networkconf_ids ?? []) : [];
+  return lan.map((n) => n._id as string).filter((id) => id !== o.native_networkconf_id && !excluded.includes(id));
+}
+
 function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, add: Add, devices: Device[]) {
   const lan = u["rest/networkconf"].filter((n) => n.purpose !== "wan");
   const criticalIds = new Set(lan.filter((n) => ctx.critical.has(Number(n.vlan) || 1)).map((n) => n._id as string));
   const igmp = u["rest/setting"].find((s) => s.key === "igmp_snooping") ?? {};
+  const avNames = new Map(lan.filter((n) => PRO_AV.test(n.name)).map((n) => [n._id as string, n.name as string]));
   const devs = new Map(u["stat/device"].map((d) => [d.mac as string, d]));
-  const core = devs.get(coreMacAddr).name as string;
-  const igmpFix = `In UniFi: Settings → Networks → Global Switch Settings → IGMP Snooping. Select all networks, and set only "${core}" as querier. ${ASK}`;
+  const igmpFix = `In UniFi: Settings → Networks → Global Switch Settings → IGMP Snooping. Set one online switch as querier for all critical VLANs. ${ASK}`;
 
   devices.push({ id: "UniFi", title: "UniFi network", subtitle: "VLANs, IGMP and multicast settings", kind: "unifi" });
   for (const d of devs.values())
@@ -257,20 +269,7 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
       `The tool finds the critical VLANs by their network name. In UniFi: Settings → Networks. Check that the Dante, GreenGo, KVM and Control networks have these names. ${ASK}`,
     );
 
-  // Policy: the flypack core switch is the only querier, on every VLAN.
-  const qs: string[] = igmp.querier_switches ?? [];
-  if (!qs.includes(coreMacAddr))
-    add("FAIL", "UniFi", "UniFi", `core switch ${core} is not a configured IGMP querier`, igmpFix);
-  for (const mac of qs.filter((m) => m !== coreMacAddr)) {
-    const d = devs.get(mac);
-    add(
-      "WARN",
-      "UniFi",
-      "UniFi",
-      `extra querier switch ${d ? d.name : mac} configured${!d || d.state !== 1 ? " (offline)" : ""}; keep only ${core}`,
-      igmpFix,
-    );
-  }
+  // Policy: one active querier per VLAN, on any switch. Only the active querier lists a VLAN.
   const queriers = new Map<number, string[]>();
   for (const d of devs.values()) {
     for (const q of d.igmp_snoop_table?.querier ?? []) {
@@ -279,8 +278,7 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
     }
   }
   for (const [vid, who] of queriers) {
-    if (who.length !== 1 || who[0] !== core)
-      add("WARN", "UniFi", "UniFi", `VLAN ${vid} querier is ${list(who)}, expected only ${core}`, igmpFix);
+    if (who.length > 1) add("WARN", "UniFi", "UniFi", `VLAN ${vid} has ${who.length} queriers: ${list(who)}`, igmpFix);
   }
   const missing = defined.filter((v) => !queriers.has(v));
   const criticalMissing = missing.filter((v) => ctx.critical.has(v));
@@ -291,8 +289,13 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
     `IGMP querier active on VLANs ${list([...queriers.keys()].sort((a, b) => a - b))}; critical VLANs without querier: ${criticalMissing.length ? list(criticalMissing) : "none"}`,
     criticalMissing.length ? `Audio, video and intercom on these VLANs can drop out. ${igmpFix}` : undefined,
   );
-  const other = missing.filter((v) => !criticalMissing.includes(v));
-  if (other.length) add("WARN", "UniFi", "UniFi", `other VLANs without querier: ${list(other)}`, igmpFix);
+  // network_ids are the VLANs selected for the querier, whatever querier_subscription_mode says.
+  const vids = new Map(lan.map((n) => [n._id as string, Number(n.vlan) || 1]));
+  const selected = new Set((igmp.network_ids ?? []).map((id: string) => vids.get(id)));
+  const unserved = missing.filter((v) => selected.has(v) && !ctx.critical.has(v));
+  if (unserved.length) add("WARN", "UniFi", "UniFi", `selected VLANs without querier: ${list(unserved)}`, igmpFix);
+  const other = missing.filter((v) => !selected.has(v) && !ctx.critical.has(v));
+  if (other.length) add("INFO", "UniFi", "UniFi", `other VLANs without querier: ${list(other)}`);
   const flooded = new Set<string>(igmp.flood_unknown_multicast_for_network_ids ?? []);
   if (igmp.enabled && criticalMissing.length && ![...criticalIds].some((id) => flooded.has(id)))
     add(
@@ -324,21 +327,37 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
         "flow control enabled",
         `In UniFi: Devices → ${d.name} → Settings. Turn off Flow Control.`,
       );
+    const proAv = (d.switch_caps?.max_qos_profiles ?? 0) > 0;
     const over = new Map((d.port_overrides ?? []).map((p: any) => [p.port_idx, p]));
     for (const p of d.port_table ?? []) {
       if (!p.up) continue;
       const o: any = over.get(p.port_idx) ?? {};
       const tag = `${d.name} port ${p.port_idx} (${p.name})`;
       const critical = criticalIds.has(o.native_networkconf_id);
-      if (critical && (p.speed ?? 1000) < 1000) {
-        const qos = o.qos_profile?.qos_policies;
+      const slow = (p.speed ?? 1000) < 1000;
+      const mode = o.qos_profile?.qos_profile_mode;
+      const preset = mode && mode !== "custom" ? (mode as string) : undefined; // the UniFi UI's test for Pro AV
+      const trunk = taggedIds(o, lan);
+      const av = [o.native_networkconf_id, ...trunk].filter((id) => avNames.has(id)).map((id) => avNames.get(id)!);
+      if (proAv && av.length && !preset?.includes("dante"))
         add(
           "WARN",
           d.name,
           tag,
-          qos?.length ? `critical VLAN port at ${p.speed}M` : `critical VLAN port at ${p.speed}M without QoS policy`,
-          `Port ${p.port_idx} runs at ${p.speed} Mbit/s. A critical VLAN needs 1 Gbit/s, or QoS with strict priority. Check the cable and the device. Use a 1 Gbit/s port on the device if it has one.`,
+          `${trunk.length ? "trunk" : "port"} with ${list(av)}${slow ? ` at ${p.speed}M` : ""} without Pro AV Dante`,
+          `In UniFi: Devices → ${d.name} → Port Manager. Select port ${p.port_idx}, set Pro AV to Dante Audio, then click Apply Changes.${trunk.length ? " If the device on this port does not use these VLANs, set Tagged VLAN Management to Block All instead." : ""} ${ASK}`,
         );
+      else if (critical && slow) {
+        const qos = o.qos_profile?.qos_policies;
+        if (preset) add("INFO", d.name, tag, `critical VLAN port at ${p.speed}M, Pro AV QoS "${preset}"`);
+        else
+          add(
+            "WARN",
+            d.name,
+            tag,
+            qos?.length ? `critical VLAN port at ${p.speed}M` : `critical VLAN port at ${p.speed}M without QoS policy`,
+            `Port ${p.port_idx} runs at ${p.speed} Mbit/s. A critical VLAN needs 1 Gbit/s, or QoS with strict priority. Check the cable and the device. Use a 1 Gbit/s port on the device if it has one.`,
+          );
       }
       if (p.full_duplex === false)
         add(
@@ -443,7 +462,7 @@ function auditSwos(
           id,
           name,
           `IGMP snooping ON, querier OFF, and no querier anywhere on VLAN ${list(missing)}: multicast/PTP gets pruned`,
-          "The UniFi core switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
+          "A UniFi switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
         );
       else r("PASS", id, name, "IGMP snooping on, querier provided upstream");
     } else if (s.igmq) {
@@ -451,7 +470,7 @@ function auditSwos(
         "FAIL",
         id,
         name,
-        "IGMP querier ON; the flypack core is the querier, turn this off",
+        "IGMP querier ON; a UniFi switch is the querier, turn this off",
         `${web} Go to the System tab. Turn off IGMP Querier, then click Apply.`,
       );
     }
@@ -632,7 +651,7 @@ function auditRouterOS(
       );
   }
 
-  // IGMP: snooping on, the flypack core is the querier.
+  // IGMP: snooping on, a UniFi switch is the querier.
   if (bridge["igmp-snooping"] !== "true")
     r(
       "FAIL",
@@ -646,7 +665,7 @@ function auditRouterOS(
       "FAIL",
       id,
       name,
-      "IGMP querier ON; the flypack core is the querier, turn this off",
+      "IGMP querier ON; a UniFi switch is the querier, turn this off",
       `${web} Go to Bridge → Bridge and open "${bridge.name}". In the IGMP Snooping section, turn off Multicast Querier, then click OK.`,
     );
   else if (queriers) {
@@ -657,7 +676,7 @@ function auditRouterOS(
         id,
         name,
         `IGMP snooping ON, querier OFF, and no querier anywhere on VLAN ${list(missing)}: multicast/PTP gets pruned`,
-        "The UniFi core switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
+        "A UniFi switch must be the IGMP querier. Fix the UniFi querier problem first. This switch then works without changes.",
       );
     else
       r(

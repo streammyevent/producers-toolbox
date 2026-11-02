@@ -174,6 +174,75 @@ describe("checks", () => {
     assert.ok(querier(fixtureScan()).endsWith("critical VLANs without querier: 40, 60"));
     assert.ok(querier(renamed("Dante", "Audio")).endsWith("critical VLANs without querier: 40"));
   });
+  test("Dante and GreenGo ports and trunks need a Pro AV Dante preset", () => {
+    const id = (name) => fixtureScan().unifi["rest/networkconf"].find((n) => n.name === name)._id;
+    // port 15: Greengo untagged; port 42: Default untagged, all VLANs tagged
+    const at100 = (idx, edit) => {
+      const scan = fixtureScan();
+      const sw = scan.unifi["stat/device"].find((d) => d.name === "48 Pro POE switch");
+      Object.assign(
+        sw.port_table.find((p) => p.port_idx === idx),
+        { up: true, speed: 100 },
+      );
+      edit(
+        sw.port_overrides.find((o) => o.port_idx === idx),
+        sw,
+      );
+      return runChecks(scan, seed)
+        .results.filter((r) => r.where.startsWith(`48 Pro POE switch port ${idx} `) && /QoS|Pro AV/.test(r.msg))
+        .map((r) => `${r.level} ${r.msg}`);
+    };
+    const preset = (qos_profile_mode) => (o) => (o.qos_profile = { qos_profile_mode, qos_policies: [] });
+    assert.deepStrictEqual(at100(15, preset("custom")), ["WARN port with Greengo at 100M without Pro AV Dante"]);
+    assert.deepStrictEqual(at100(15, preset("dante_audio")), [
+      'INFO critical VLAN port at 100M, Pro AV QoS "dante_audio"',
+    ]);
+    assert.deepStrictEqual(at100(42, preset("custom")), [
+      "WARN trunk with Dante, Greengo at 100M without Pro AV Dante",
+    ]);
+    assert.deepStrictEqual(at100(42, preset("dante_audio")), []);
+    assert.deepStrictEqual(
+      at100(42, (o) => (o.tagged_vlan_mgmt = "block_all")),
+      [],
+    );
+    assert.deepStrictEqual(
+      at100(42, (o) =>
+        Object.assign(o, { tagged_vlan_mgmt: "custom", excluded_networkconf_ids: [id("Dante"), id("Greengo")] }),
+      ),
+      [],
+    );
+    // a switch without Pro AV keeps the speed check
+    assert.deepStrictEqual(
+      at100(15, (o, sw) => (sw.switch_caps.max_qos_profiles = 0)),
+      ["WARN critical VLAN port at 100M without QoS policy"],
+    );
+  });
+  test("one IGMP querier per VLAN, on any switch", () => {
+    const unifi = (edit) => {
+      const scan = fixtureScan();
+      const devs = scan.unifi["stat/device"];
+      edit(
+        devs.find((d) => d.name === "48 Pro POE switch"),
+        devs.find((d) => d.name === "Switch Audio set"),
+      );
+      return verdicts(runChecks(scan, seed).results).filter((v) => v.split(" ")[1] === "UniFi");
+    };
+    const base = unifi(() => {});
+    const moved = unifi((core, other) => {
+      other.igmp_snoop_table = core.igmp_snoop_table;
+      delete core.igmp_snoop_table;
+    });
+    assert.deepStrictEqual(moved, base);
+    const twice = unifi((core, other) => (other.igmp_snoop_table = core.igmp_snoop_table));
+    assert.deepStrictEqual(
+      twice.filter((v) => !base.includes(v)),
+      [10, 20, 30].map((v) => `WARN UniFi VLAN ${v} has 2 queriers: Switch Audio set, 48 Pro POE switch`),
+    );
+    const gap = unifi(
+      (core) => (core.igmp_snoop_table.querier = core.igmp_snoop_table.querier.filter((q) => q.vlan !== 20)),
+    );
+    assert.ok(gap.includes("WARN UniFi selected VLANs without querier: 20"));
+  });
   test("no critical network name gives a warning", () => {
     const scan = renamed("Dante", "Audio");
     scan.unifi["rest/networkconf"] = scan.unifi["rest/networkconf"].map((n) =>

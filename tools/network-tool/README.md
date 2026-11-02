@@ -47,10 +47,11 @@ The tool does not use a fixed VLAN plan. It reads the networks from UniFi and tr
 
 **UniFi** (the gateway is the controller at `/api/auth/login`, site `default`):
 - The networks it found, and which of them are critical
-- The IGMP querier: the core switch only. FAIL when a critical VLAN has no querier
+- The IGMP querier: one active querier per VLAN, on any UniFi switch. FAIL when a critical VLAN has no querier, WARN when a VLAN selected for the querier has none or a VLAN has more than one
 - Snooping without a querier or flooding on critical VLANs
 - Core STP priority 4096, flow control off
-- Per port: speed and QoS on critical VLAN ports, half duplex, rx/tx errors, edge state
+- Pro AV: on switches that support it, every port that carries a Dante or GreenGo network, untagged or tagged on a trunk, uses a Pro AV Dante preset. The `dante_audio` preset puts DSCP 56 (PTP) and 46 (Dante audio, GreenGo voice) in strict-priority queues
+- Per port: speed on critical VLAN ports, half duplex, rx/tx errors, edge state
 - Clients: link-local (169.254.x) addresses, wireless clients on a critical VLAN
 
 **MikroTik switches** are found with a ping sweep, then by MikroTik OUI in the ARP table, or by their login challenge: SwOS puts the model name in it, RouterOS answers its REST API with a Basic challenge and a JSON error.
