@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/streammyevent/producers-toolbox/compare/v0.2.0...v0.3.0) (2026-11-02)
+
+
+### Features
+
+* **network-tool:** Pro AV Dante checks, expanded scan and Cmd+K device search ([#16](https://github.com/streammyevent/producers-toolbox/issues/16)) ([64c653e](https://github.com/streammyevent/producers-toolbox/commit/64c653e02e4b5c9cae247c52c9e883f914e29416))
+
 ## [0.2.0](https://github.com/streammyevent/producers-toolbox/compare/v0.1.1...v0.2.0) (2026-10-21)
 
 
