@@ -1,5 +1,6 @@
 import { bits, hexstr, ipLE, normMac, type Scan, type Switch } from "./net";
 import { portTable, vidList, type Port, type PortCtx } from "./ports";
+import { wireChecks, wireQueriers } from "./wire";
 
 // A critical VLAN carries multicast-sensitive traffic. The UniFi network name decides it.
 export const CRITICAL = /dante|greengo|kvm|control/i;
@@ -22,7 +23,7 @@ export type Device = {
   id: string;
   title: string;
   subtitle: string;
-  kind: "unifi" | "mikrotik" | "equipment";
+  kind: "unifi" | "capture" | "mikrotik" | "equipment";
   ports?: Port[];
 };
 /** `vlan` entries: a number matches the VID, a string matches the UniFi network name. */
@@ -40,15 +41,20 @@ export type Seen = {
 };
 type Tracked = { device: string; label: string; vlan: number; fromUnifi: boolean };
 export type Known = Map<string, Tracked & { at: string; misses: number }>;
-type Nets = { nets: Map<number, string>; critical: Set<number> };
+type Nets = { nets: Map<number, string>; critical: Set<number>; subnets: Map<number, string> };
 
 const list = (xs: (string | number)[]) => xs.join(", ");
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 export function networks(u: Record<string, any[]> | null): Nets {
   const nets = new Map<number, string>();
-  for (const n of u?.["rest/networkconf"] ?? []) if (n.purpose !== "wan") nets.set(Number(n.vlan) || 1, n.name);
-  return { nets, critical: new Set([...nets].filter(([, name]) => CRITICAL.test(name)).map(([v]) => v)) };
+  const subnets = new Map<number, string>();
+  for (const n of u?.["rest/networkconf"] ?? []) {
+    if (n.purpose === "wan") continue;
+    nets.set(Number(n.vlan) || 1, n.name);
+    if (n.ip_subnet) subnets.set(Number(n.vlan) || 1, n.ip_subnet);
+  }
+  return { nets, critical: new Set([...nets].filter(([, name]) => CRITICAL.test(name)).map(([v]) => v)), subnets };
 }
 
 /** The flypack core is the largest online UniFi switch. */
@@ -73,8 +79,14 @@ export function runChecks(
 
   let queriers: Set<number> | null = null;
   const core = scan.unifi ? coreMac(scan.unifi) : undefined;
+  const vendor = (seen: Seen[]) => (mac: string) =>
+    mac
+      ? (seen.find((s) => s.mac === mac)?.vendor ?? equipment.find((e) => e.oui && mac.startsWith(e.oui))?.vendor)
+      : undefined;
   if (scan.unifi && core) {
-    queriers = auditUnifi(scan.unifi, core, ctx, add, devices);
+    // Queriers seen on the wire count too: any brand, any switch. Gear is known by base MAC before the client list.
+    const wire = scan.wire && wireQueriers(scan.wire.obs, portCtx(scan, []).gear, vendor([]));
+    queriers = auditUnifi(scan.unifi, core, ctx, add, devices, wire);
   } else {
     devices.push({ id: "UniFi", title: "UniFi network", subtitle: scan.network.gateway, kind: "unifi" });
     add(
@@ -143,6 +155,25 @@ export function runChecks(
   }
   auditEquipment(seen, ctx, add);
   track(known, scan, seen, ctx, now, add, devices, owner);
+  if (scan.wire) {
+    const id = "Expanded scan";
+    devices.push({ id, title: id, subtitle: `What ${scan.network.name} sees on the wire`, kind: "capture" });
+    const pc = portCtx(scan, seen);
+    const coreName = scan.unifi?.["stat/device"].find((d) => d.mac === core)?.name;
+    wireChecks(
+      scan.wire,
+      {
+        nets: ctx.nets,
+        subnets: ctx.subnets,
+        gateways: new Set([...ctx.subnets.values()].map((c) => c.split("/")[0])),
+        gear: pc.gear,
+        name: (mac) => (mac ? (pc.gear(mac) ?? pc.label(mac)) : undefined),
+        vendor: vendor(seen),
+        core: coreName,
+      },
+      (level, where, msg, fix) => add(level, id, where, msg, fix),
+    );
+  }
   // A switch or UniFi device also shows up as a client; its results go to its own row.
   for (const r of results) r.device = owner.get(r.device) ?? r.device;
   const pctx = portCtx(scan, seen);
@@ -236,7 +267,14 @@ function taggedIds(o: any, lan: any[]): string[] {
   return lan.map((n) => n._id as string).filter((id) => id !== o.native_networkconf_id && !excluded.includes(id));
 }
 
-function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, add: Add, devices: Device[]) {
+function auditUnifi(
+  u: Record<string, any[]>,
+  coreMacAddr: string,
+  ctx: Nets,
+  add: Add,
+  devices: Device[],
+  wire?: Map<number, string[]>,
+) {
   const lan = u["rest/networkconf"].filter((n) => n.purpose !== "wan");
   const criticalIds = new Set(lan.filter((n) => ctx.critical.has(Number(n.vlan) || 1)).map((n) => n._id as string));
   const igmp = u["rest/setting"].find((s) => s.key === "igmp_snooping") ?? {};
@@ -273,10 +311,12 @@ function auditUnifi(u: Record<string, any[]>, coreMacAddr: string, ctx: Nets, ad
   const queriers = new Map<number, string[]>();
   for (const d of devs.values()) {
     for (const q of d.igmp_snoop_table?.querier ?? []) {
-      if ((q.querier_ip ?? "").includes(":")) continue; // MLD (IPv6) entry
+      if (q.is_querier === false || (q.querier_ip ?? "").includes(":")) continue; // not active, or MLD (IPv6)
       queriers.set(q.vlan, [...(queriers.get(q.vlan) ?? []), d.name]);
     }
   }
+  for (const [vid, who] of wire ?? [])
+    for (const w of who) if (!queriers.get(vid)?.includes(w)) queriers.set(vid, [...(queriers.get(vid) ?? []), w]);
   for (const [vid, who] of queriers) {
     if (who.length > 1) add("WARN", "UniFi", "UniFi", `VLAN ${vid} has ${who.length} queriers: ${list(who)}`, igmpFix);
   }

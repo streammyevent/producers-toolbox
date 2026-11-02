@@ -22,6 +22,14 @@
           <select id="iface" title="Network connection" hidden></select>
           <span class="net" id="when"></span>
           <span class="net np" id="np" hidden></span>
+          <button
+            class="toggle"
+            id="expanded"
+            aria-pressed="false"
+            title="Also capture packets and listen for Dante, PTP, DHCP and GreenGo. Can ask for permission once."
+          >
+            Expanded scan: off
+          </button>
           <button class="music" id="music" aria-pressed="false">Music: off</button>
           <button class="ghost" id="next" title="Next track" aria-label="Next track" hidden>»</button>
           <button id="rescan" hidden>Scan again</button>

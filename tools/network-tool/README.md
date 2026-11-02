@@ -22,6 +22,28 @@ The tool shows a list of every device it found: the UniFi gear, the MikroTik swi
 
 Some ports are locked (dashed outline). The tool tells you why: ports 1 and 2 are always trunks, and the tool does not change a port that connects to the core, to another switch or to this computer. A trunk port (T) carries all VLANs. Only SFP+ ports can be set back to trunk.
 
+### Expanded scan
+
+Click **Expanded scan: off** in the header to turn it on. The tool then also reads what this computer receives on the network cable:
+
+- IGMP queriers of any brand, per VLAN. A querier that is not a UniFi switch also counts for the querier checks.
+- DHCP servers: FAIL when a device that is not the UniFi gateway gives out addresses.
+- The PTP clock leader per VLAN: WARN when there are two leaders, or the leader changes.
+- Dante, NDI and GreenGo devices: duplicate Dante names, Dante devices on the wrong VLAN, two GreenGo configs on one VLAN.
+- Audio multicast that reaches this computer although it did not join it (snooping does not prune).
+- The switch port this computer is on (LLDP), duplicate IP addresses, addresses of another network (a device that connects two VLANs), the spanning tree root and topology changes.
+
+The tool captures packets for this. The first time, the computer can ask for permission once:
+
+- **Mac**: the administrator password, unless Wireshark is installed with its capture access (ChmodBPF). tcpdump then runs as you, not as administrator.
+- **Windows**: a UAC prompt. The tool uses pktmon, which comes with Windows 10 (version 2004 or later) and Windows 11. Windows Firewall can also ask once to allow the app.
+
+If you cancel, the rest of the expanded scan still works. Turn **Expanded scan** off and on to ask again. The capture stops when you turn the expanded scan off, when you quit the Producers Toolbox, or 2 minutes after the window closes.
+
+The tool sees the VLAN of its own port. Connect the laptop to a trunk port to see all VLANs. An IGMP querier sends a query about every 2 minutes, so the querier results take that long to fill in.
+
+The expanded scan sends two things to the network. It changes no configuration: a DHCP DISCOVER for this computer's own MAC (at most every 5 minutes, it takes no new address), and a join of the PTP group 224.0.1.129, so the switches send PTP to this computer.
+
 ## For the network lead
 
 `.env` in this folder holds the plain logins and is never committed:

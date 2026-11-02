@@ -233,7 +233,8 @@ button.ghost {
   background: var(--surface-2);
   color: var(--accent);
 }
-button.music[aria-pressed="true"] {
+button.music[aria-pressed="true"],
+button.toggle[aria-pressed="true"] {
   background: #05010f;
   color: var(--accent);
   box-shadow:

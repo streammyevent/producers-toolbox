@@ -3,7 +3,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const RANK = { FAIL: 0, WARN: 1, PASS: 2, INFO: 3 };
-const KIND = { unifi: 0, mikrotik: 1, equipment: 2 };
+const KIND = { unifi: 0, capture: 1, mikrotik: 2, equipment: 3 };
 const AUTO_MS = 30_000;
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let timer,
@@ -11,7 +11,8 @@ let timer,
   last = null,
   selected = null,
   selPort = null,
-  editing = false;
+  editing = false,
+  again = false;
 // Standard colour per VLAN type, matched on the UniFi network name. Others get a spare colour by VID.
 const VLAN_COLORS = [
   [/manag|default/i, "#9a98b0"],
@@ -26,6 +27,26 @@ const SPARE = ["#ff7ab6", "#ff8c1a", "#a0e000", "#7fb2ff", "#d8a070"];
 
 // Methods of the tool's api.js in the main process (apps/desktop/src/types/toolbox.d.ts).
 const call = (method, ...args) => window.toolbox.call(method, ...args);
+
+// Expanded scan: off by default, remembered on this computer.
+const expanded = {
+  get: () => {
+    try {
+      return localStorage.getItem("expanded") === "on";
+    } catch {
+      return false;
+    }
+  },
+  set: (v) => {
+    try {
+      localStorage.setItem("expanded", v ? "on" : "off");
+    } catch {}
+  },
+};
+function setExpandedButton(on) {
+  $("#expanded").setAttribute("aria-pressed", on);
+  $("#expanded").textContent = on ? "Expanded scan: on" : "Expanded scan: off";
+}
 
 async function start() {
   const s = await call("status.get");
@@ -77,9 +98,9 @@ async function scan() {
   $("#rescan").textContent = "Scanning";
   if (!last)
     $("#main").innerHTML =
-      `<div class="banner px busy"><div><div class="t blink">SCANNING...</div><small>Reading UniFi and the switches. This takes about 10 seconds.</small><div class="load"></div></div></div>`;
+      `<div class="banner px busy"><div><div class="t blink">SCANNING...</div><small>Reading UniFi and the switches. This takes about 10 seconds.${expanded.get() ? " The expanded scan can ask once for permission to capture packets." : ""}</small><div class="load"></div></div></div>`;
   try {
-    last = await call("audit.run", $("#iface").value);
+    last = await call("audit.run", $("#iface").value, expanded.get());
     if (!editing) render(last);
   } catch (err) {
     if (!(await call("status.get").catch(() => ({ hasLogins: true }))).hasLogins) return showSetup();
@@ -88,7 +109,8 @@ async function scan() {
     scanning = false;
     $("#rescan").disabled = false;
     $("#rescan").textContent = "Scan again";
-    timer = setTimeout(auto, AUTO_MS);
+    timer = setTimeout(auto, again ? 0 : AUTO_MS);
+    again = false;
   }
 }
 
@@ -151,7 +173,7 @@ function render(d) {
     list.length ? `<div class="group">${title} (${list.length})</div>${list.map(item).join("")}` : "";
 
   $("#main").innerHTML = `
-    <div class="banner px ${overall}"><span class="dot ${overall}"></span><div><div class="t">${headline}</div><small>${sub} Scan took ${(d.ms / 1000).toFixed(1)} s. The page scans again every ${AUTO_MS / 1000} s.</small></div></div>
+    <div class="banner px ${overall}"><span class="dot ${overall}"></span><div><div class="t">${headline}</div><small>${sub} Scan took ${(d.ms / 1000).toFixed(1)} s. The page scans again every ${AUTO_MS / 1000} s.${expanded.get() ? " Expanded scan on." : ""}</small></div></div>
     <div class="split">
       <section class="list px" aria-label="Devices">
         ${tools.length ? `<div class="tools">${tools.join("")}<span id="learned"></span></div>` : ""}
@@ -581,6 +603,15 @@ if (pref.get()) {
   addEventListener("keydown", resume);
 }
 
+setExpandedButton(expanded.get());
+$("#expanded").onclick = () => {
+  const on = !expanded.get();
+  expanded.set(on);
+  setExpandedButton(on);
+  // A scan that runs now uses the old setting: scan again right after it.
+  if (scanning) again = true;
+  else scan();
+};
 $("#rescan").onclick = () => {
   editing = false;
   scan();
