@@ -269,8 +269,23 @@ describe("expanded scan checks", () => {
     assert.deepStrictEqual(lines(memory([a(X, "10.0.0.50"), a(Y, "10.0.0.50")])), [
       `FAIL VLAN 1 (Default): IP 10.0.0.50 is used by 2 devices: ${X}, ${Y}`,
     ]);
+    // an address of another network: wrong VLAN, a second port of the same device, or a bridge
+    const at = (m, addr, vlan) => frame(eth(m, "ff:ff:ff:ff:ff:ff", 0x0806, arp(m, addr), vlan));
     assert.deepStrictEqual(lines(memory([a(X, "192.168.40.7")])), [
-      `WARN VLAN 1 (Default) carries 192.168.40.7 from ${X}: an address of another network`,
+      `WARN VLAN 1 (Default) carries 192.168.40.7 from ${X}: an address of VLAN 40 (Greengo)`,
+    ]);
+    const twoPorts = memory([a(X, "10.0.0.60"), a(X, "192.168.40.7")]);
+    assert.deepStrictEqual(lines(twoPorts), []);
+    assert.ok(
+      results(twoPorts).some(
+        (r) =>
+          r.msg ===
+          `VLAN 1 (Default): ${X} also uses 192.168.40.7 (VLAN 40 (Greengo)): a device on more than one network`,
+      ),
+    );
+    assert.deepStrictEqual(lines(memory([at(Y, "192.168.40.7", 40), a(X, "192.168.40.7")])), []);
+    assert.deepStrictEqual(lines(memory([at(X, "192.168.40.7", 40), a(X, "192.168.40.7")])), [
+      `WARN VLAN 1 (Default) carries 192.168.40.7 from ${X}, a device on VLAN 40 (Greengo): the two VLANs are connected`,
     ]);
   });
   test("PTP leaders, Dante names and VLAN, flooding", () => {
@@ -288,11 +303,21 @@ describe("expanded scan checks", () => {
       data: mdnsAnswer("_netaudio-arc._udp.local", name),
     });
     assert.deepStrictEqual(lines(memory([], [dante("Box", "169.254.1.1", 60), dante("Box", "169.254.1.2", 60)])), [
-      'WARN 2 Dante devices named "Box": 169.254.1.1, 169.254.1.2',
+      'WARN VLAN 60 (Dante): 2 Dante devices named "Box": 169.254.1.1, 169.254.1.2',
     ]);
-    assert.deepStrictEqual(lines(memory([], [dante("Box", "10.0.0.40", 1)])), [
-      'WARN Dante device "Box" (10.0.0.40) on VLAN 1 (Default)',
+    // a PC with Dante Virtual Soundcard and two network cards: one device, not a duplicate
+    const pc = memory([], [dante("PPT", "192.168.31.245", 30), dante("PPT", "169.254.190.24", 60)]);
+    assert.deepStrictEqual(lines(pc), []);
+    assert.ok(
+      results(pc).some(
+        (r) => r.msg === 'Dante device "PPT" also answers on VLAN 30 (Tech) (192.168.31.245): a second network card',
+      ),
+    );
+    assert.deepStrictEqual(lines(memory([], [dante("Box", "192.168.31.40", 30), dante("Other", "169.254.1.3", 60)])), [
+      'WARN Dante device "Box" (192.168.31.40) on VLAN 30 (Tech), not on the Dante VLAN',
     ]);
+    // without a view of the Dante VLAN the tool cannot tell a second network card from a wrong VLAN
+    assert.deepStrictEqual(lines(memory([], [dante("Box", "192.168.31.40", 30)])), []);
     const audio = (t) =>
       frame(
         eth(

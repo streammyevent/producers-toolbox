@@ -315,6 +315,9 @@ export type WireCtx = {
   /** Gear, or a known client by MAC. */
   name: (mac: string) => string | undefined;
   vendor: (mac: string) => string | undefined;
+  /** Addresses of a MAC, and MACs of an address, from the UniFi and MikroTik client lists. */
+  ipsOf: (mac: string) => string[];
+  macsOf: (ip: string) => string[];
   core?: string;
 };
 type Add = (level: Level, where: string, msg: string, fix?: string) => void;
@@ -390,27 +393,42 @@ export function wireChecks(w: Wire, c: WireCtx, add: Add) {
       );
   }
 
+  // A computer with Dante Virtual Soundcard announces itself on every network card: one name on several VLANs is one
+  // device. A duplicate is the same name twice on one VLAN.
   const dante = of("dante");
-  for (const [v, ds] of group(dante, (d) => d.vlan))
+  const onDante = (v: number) => /dante/i.test(c.nets.get(v) ?? "");
+  for (const [v, ds] of group(dante, (d) => d.vlan)) {
     add("INFO", "Dante", `${vlan(v)}: Dante devices ${list(uniq(ds.map((d) => `${d.name} (${d.ip})`)))}`);
-  for (const [name, ds] of group(dante, (d) => d.name)) {
-    const ips = uniq(ds.map((d) => d.ip));
-    if (ips.length > 1)
-      add(
-        "WARN",
-        "Dante",
-        `${ips.length} Dante devices named "${name}": ${list(ips)}`,
-        "In Dante Controller, rename one of the devices.",
-      );
+    for (const [name, same] of group(ds, (d) => d.name)) {
+      const ips = uniq(same.map((d) => d.ip));
+      if (ips.length > 1)
+        add(
+          "WARN",
+          "Dante",
+          `${vlan(v)}: ${ips.length} Dante devices named "${name}": ${list(ips)}`,
+          "In Dante Controller, rename one of the devices.",
+        );
+    }
   }
-  for (const d of dante)
-    if (!/dante/i.test(c.nets.get(d.vlan) ?? ""))
+  const seesDante = w.obs.some((o) => onDante(o.vlan));
+  for (const d of dante) {
+    if (onDante(d.vlan)) continue;
+    if (dante.some((x) => x.name === d.name && onDante(x.vlan)))
+      add("INFO", "Dante", `Dante device "${d.name}" also answers on ${vlan(d.vlan)} (${d.ip}): a second network card`);
+    else if (seesDante)
       add(
         "WARN",
         "Dante",
-        `Dante device "${d.name}" (${d.ip}) on ${vlan(d.vlan)}`,
+        `Dante device "${d.name}" (${d.ip}) on ${vlan(d.vlan)}, not on the Dante VLAN`,
         `Dante devices belong on the Dante VLAN. Connect this device to a Dante port. ${ASK}`,
       );
+    else
+      add(
+        "INFO",
+        "Dante",
+        `Dante device "${d.name}" (${d.ip}) on ${vlan(d.vlan)}: this computer does not see the Dante VLAN, so it cannot check it`,
+      );
+  }
   for (const [v, ns] of group(of("ndi"), (n) => n.vlan))
     add("INFO", "NDI", `${vlan(v)}: NDI sources ${list(uniq(ns.map((n) => `${n.name} (${n.ip})`)))}`);
   for (const [v, gs] of group(of("greengo"), (g) => g.vlan)) {
@@ -425,7 +443,9 @@ export function wireChecks(w: Wire, c: WireCtx, add: Add) {
       );
   }
 
-  for (const as of group(of("arp"), (a) => `${a.vlan}|${a.ip}`).values()) {
+  const arps = of("arp");
+  const home = (ip: string) => [...c.subnets].find(([, n]) => contains(n, ip))?.[0];
+  for (const as of group(arps, (a) => `${a.vlan}|${a.ip}`).values()) {
     const { vlan: v, ip } = as[0];
     const owners = uniq(as.map((a) => who(a.mac)));
     if (owners.length > 1 && !ip.startsWith("169.254."))
@@ -436,12 +456,32 @@ export function wireChecks(w: Wire, c: WireCtx, add: Add) {
         `Two devices use the same IP address. Give one of them another address. ${ASK}`,
       );
     const net = c.subnets.get(v);
-    if (net && !ip.startsWith("169.254.") && !contains(net, ip))
+    if (!net || ip.startsWith("169.254.") || contains(net, ip)) continue;
+    // Linux uses any of its addresses in ARP, on any port: a device with ports on two VLANs shows its other
+    // address here. A bridge shows the same MAC on both VLANs.
+    const h = home(ip);
+    const homeMacs = [...c.macsOf(ip), ...arps.filter((a) => a.vlan === h && a.ip === ip).map((a) => a.mac)];
+    const macs = uniq(as.map((a) => a.mac));
+    const local = (m: string) =>
+      [...c.ipsOf(m), ...arps.filter((a) => a.vlan === v && a.mac === m).map((a) => a.ip)].some((x) =>
+        contains(net, x),
+      );
+    const other = h === undefined ? "no UniFi network" : vlan(h);
+    if (h !== undefined && macs.some((m) => homeMacs.includes(m)))
       add(
         "WARN",
         "ARP",
-        `${vlan(v)} carries ${ip} from ${owners[0]}: an address of another network`,
-        `A device connects two VLANs, or has a fixed address of another network. Find it, then remove the bridge or network sharing, or give it an address in ${net}. ${ASK}`,
+        `${vlan(v)} carries ${ip} from ${owners[0]}, a device on ${other}: the two VLANs are connected`,
+        `A device connects two VLANs: a bridge, network sharing, or a cable between two VLAN ports. Find it and remove the connection. ${ASK}`,
+      );
+    else if (macs.some(local) || homeMacs.length)
+      add("INFO", "ARP", `${vlan(v)}: ${owners[0]} also uses ${ip} (${other}): a device on more than one network`);
+    else
+      add(
+        "WARN",
+        "ARP",
+        `${vlan(v)} carries ${ip} from ${owners[0]}: an address of ${other}`,
+        `This device has a fixed address of another network. Connect it to the right VLAN, or give it an address in ${net}. ${ASK}`,
       );
   }
 

@@ -210,6 +210,8 @@ export function runChecks(
         gear: pc.gear,
         name: (mac) => (mac ? (pc.gear(mac) ?? pc.label(mac)) : undefined),
         vendor: vendor(seen),
+        ipsOf: (mac) => seen.flatMap((s) => (s.mac === mac && s.ip ? [s.ip] : [])),
+        macsOf: (ip) => seen.flatMap((s) => (s.ip === ip ? [s.mac] : [])),
         core: coreName,
       },
       (level, where, msg, fix) => add(level, id, where, msg, fix),
