@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/streammyevent/producers-toolbox/compare/v0.3.0...v0.4.0) (2026-11-04)
+
+
+### Features
+
+* **network-tool:** change the VLAN of several ports at once ([#19](https://github.com/streammyevent/producers-toolbox/issues/19)) ([97f5fa3](https://github.com/streammyevent/producers-toolbox/commit/97f5fa3dc757e6150531d1cf05d53c3aca03ef51))
+
 ## [0.3.0](https://github.com/streammyevent/producers-toolbox/compare/v0.2.0...v0.3.0) (2026-11-02)
 
 
