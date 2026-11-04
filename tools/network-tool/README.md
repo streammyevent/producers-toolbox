@@ -94,7 +94,7 @@ The tool does not use a fixed VLAN plan. It reads the networks from UniFi and tr
 - STP root is the flypack core; access ports are edge
 - Access PVIDs that are missing from the bridge VLAN table, and PVIDs that are not a UniFi network
 
-**Port errors** (UniFi and RouterOS). The switch counts errors until it reboots, so the tool looks at the rate. WARN at 10 errors or more and 1 bad frame in a million or worse, over the switch uptime or over the last 5 minutes. The 5-minute rate shows a port that starts to make errors on the next scan. Below that, the count shows as INFO.
+**Port errors** (UniFi and RouterOS). The switch counts errors until it reboots, so the tool looks at the rate. WARN at 10 errors or more and 1 bad frame in a million or worse, over the switch uptime or over the last 5 minutes. The 5-minute rate shows a port that starts to make errors on the next scan. Errors from a link-up go to INFO when the last 5 minutes have a good rate over enough frames: as many as would show 10 errors at the rate from before. Below that, the count shows as INFO.
 
 Configuration drift on RouterOS (VLAN filtering, QoS, hardware offload) is not fixed by crew: the fix tells them to report it.
 

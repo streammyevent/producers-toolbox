@@ -15,7 +15,8 @@ what it checks.
   - `checks.ts`: pure functions over a `Scan`. `auditSwos` and `auditRouterOS` give the same message for the same
     check; `swInfo()` gives id/MAC/IP for both. `runChecks(scan, equipment, known, now, counters)` returns
     `{ devices, results, seen }` and updates `known` (missing-device tracking) and `counters` (port error samples of
-    the last 5 minutes, for a rising error rate). `networks()` derives VLAN names and critical VLANs from UniFi.
+    the last 5 minutes, for a rising error rate, and to clear errors from a link-up when the window is clean).
+    `networks()` derives VLAN names and critical VLANs from UniFi.
     `locate()` fills `Seen.links` (per VLAN: IPs and port). The port is the edge port: where the MAC is learned and
     no network gear is (uplinks always see the core or the next switch). Without one, UniFi's client location.
   - `ports.ts`: the only write path. `portTable()` (per port: VLAN or trunk, link, connected devices, lock reason) and

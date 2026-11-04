@@ -567,6 +567,15 @@ describe("port errors", () => {
     assert.strictEqual(rise.level, "WARN");
     startsWith(rise.msg, "errors rx=+100 tx=+0, 1 in 10K frames since ");
   });
+  test("errors from a link-up go to INFO after enough clean frames", () => {
+    const counters = new Map();
+    assert.strictEqual(port28(40, 84e3, counters, "2026-10-06T12:00:00Z").level, "WARN");
+    assert.strictEqual(port28(40, 94e3, counters, "2026-10-06T12:00:30Z").level, "WARN"); // 10K frames, 21K needed
+    assert.strictEqual(port28(40, 110e3, counters, "2026-10-06T12:01:00Z").level, "INFO");
+    const still = new Map();
+    port28(40, 84e3, still, "2026-10-06T12:00:00Z");
+    assert.strictEqual(port28(45, 110e3, still, "2026-10-06T12:00:30Z").level, "WARN"); // 5 new errors in 26K frames
+  });
   test("a reboot or a sample older than 5 minutes gives no rise", () => {
     const counters = new Map();
     port28(103, 575e6, counters, "2026-10-06T12:00:00Z");
