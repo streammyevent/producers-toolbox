@@ -1,6 +1,6 @@
 import { normMac } from "./net";
 
-// The only code that writes to the network: the untagged VLAN of a port on a RouterOS switch.
+// The only code that writes to the network: the VLAN of a port on a RouterOS switch, or trunk.
 // ether1 and ether2 are fixed trunks. Ports with network gear behind them stay locked, so a change can
 // never cut a switch, the core or this computer off.
 
@@ -15,7 +15,6 @@ export type PortCtx = {
 };
 export type Port = {
   name: string;
-  sfp: boolean;
   vlan: number | "trunk";
   up: boolean;
   rate?: string;
@@ -61,7 +60,6 @@ export function portTable(ros: Ros, ctx: PortCtx): Port[] {
               : undefined;
     return {
       name,
-      sfp: name.startsWith("sfp"),
       vlan: p["frame-types"] === ACCESS ? Number(p.pvid) : "trunk",
       up: links.has(name),
       rate: links.get(name)?.rate,
@@ -71,25 +69,31 @@ export function portTable(ros: Ros, ctx: PortCtx): Port[] {
   });
 }
 
-/** The REST writes that put `name` on `target`, or why that is not allowed. */
+/**
+ * The REST writes that put the ports `names` on `target`, or why that is not allowed. One plan for all ports:
+ * separate plans from the same read would overwrite each other's bridge VLAN entries.
+ */
 export function planChange(
   ros: Ros,
   ctx: PortCtx,
-  name: string,
+  names: string[],
   target: number | "trunk",
-): { ops: Op[]; from: Port["vlan"] } | { error: string } {
+): { ops: Op[]; ports: Port[] } | { error: string } {
   if (!ctx.nets.size) return { error: "No VLAN list from UniFi. Scan again when UniFi answers." };
-  const port = portTable(ros, ctx).find((p) => p.name === name);
-  if (!port) return { error: `Port ${name} is not on this switch.` };
-  if (port.locked) return { error: port.locked };
-  if (target === "trunk" && !port.sfp) return { error: "Only SFP+ ports can be set to trunk." };
+  const table = portTable(ros, ctx);
+  for (const name of names) {
+    const port = table.find((p) => p.name === name);
+    if (!port) return { error: `Port ${name} is not on this switch.` };
+    if (port.locked) return { error: `${name}: ${port.locked}` };
+  }
   if (target !== "trunk" && !ctx.nets.has(target)) return { error: `VLAN ${target} is not a network in UniFi.` };
-  if (target === port.vlan) return { ops: [], from: port.vlan };
+  const ports = table.filter((p) => names.includes(p.name) && p.vlan !== target);
+  if (!ports.length) return { ops: [], ports };
 
+  const set = new Set(ports.map((p) => p.name));
   const bridge = ros["interface/bridge"][0];
-  const bp = ros["interface/bridge/port"].find((p: any) => p.interface === name);
   const statics: any[] = ros["interface/bridge/vlan"].filter((v: any) => v.dynamic !== "true");
-  const without = (csv: string) => csv.split(",").filter((x) => x && x !== name);
+  const without = (csv: string) => csv.split(",").filter((x) => x && !set.has(x));
   const ops: Op[] = [];
   const members = (v: any, tagged: string[], untagged: string[]) => {
     if (tagged.join(",") !== v.tagged || untagged.join(",") !== v.untagged)
@@ -99,30 +103,32 @@ export function planChange(
         body: { tagged: tagged.join(","), untagged: untagged.join(",") },
       });
   };
-  const setPort = (body: Record<string, string>) =>
-    ops.push({ method: "PATCH", path: `interface/bridge/port/${bp[".id"]}`, body });
+  const setPorts = (body: Record<string, string>) => {
+    for (const p of ros["interface/bridge/port"].filter((p: any) => set.has(p.interface)))
+      ops.push({ method: "PATCH", path: `interface/bridge/port/${p[".id"]}`, body });
+  };
 
   if (target === "trunk") {
-    setPort({ pvid: bridge.pvid ?? "1", "frame-types": "admit-all", "ingress-filtering": "yes", edge: "auto" });
-    for (const v of statics) members(v, [...without(v.tagged), name], without(v.untagged));
-    return { ops, from: port.vlan };
+    setPorts({ pvid: bridge.pvid ?? "1", "frame-types": "admit-all", "ingress-filtering": "yes", edge: "auto" });
+    for (const v of statics) members(v, [...without(v.tagged), ...set], without(v.untagged));
+    return { ops, ports };
   }
   const entry = statics.find((v) => v["vlan-ids"] === String(target));
   // ponytail: entries that cover several VIDs (10,20 or 100-200) are left to WebFig
   if (!entry && statics.some((v) => vidList(v["vlan-ids"]).includes(target)))
-    return { error: `VLAN ${target} shares a bridge VLAN entry with other VLANs. Change this port in WebFig.` };
-  if (entry) members(entry, without(entry.tagged), [...without(entry.untagged), name]);
+    return { error: `VLAN ${target} shares a bridge VLAN entry with other VLANs. Make this change in WebFig.` };
+  if (entry) members(entry, without(entry.tagged), [...without(entry.untagged), ...set]);
   else if (target !== Number(bridge.pvid ?? 1)) {
     const trunks = ros["interface/bridge/port"]
-      .filter((p: any) => p["frame-types"] === "admit-all" && p.interface !== name)
+      .filter((p: any) => p["frame-types"] === "admit-all" && !set.has(p.interface))
       .map((p: any) => p.interface);
     ops.push({
       method: "PUT",
       path: "interface/bridge/vlan",
-      body: { bridge: bridge.name, "vlan-ids": String(target), tagged: trunks.join(","), untagged: name },
+      body: { bridge: bridge.name, "vlan-ids": String(target), tagged: trunks.join(","), untagged: [...set].join(",") },
     });
   }
-  setPort({ pvid: String(target), "frame-types": ACCESS, "ingress-filtering": "yes", edge: "yes-discover" });
+  setPorts({ pvid: String(target), "frame-types": ACCESS, "ingress-filtering": "yes", edge: "yes-discover" });
   for (const v of statics) if (v !== entry) members(v, without(v.tagged), without(v.untagged));
-  return { ops, from: port.vlan };
+  return { ops, ports };
 }

@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Network Tool: audit app for the flypack network (UniFi core + MikroTik switches on SwOS or RouterOS 7). Read-only,
-except for one action: changing the untagged VLAN of a port on a RouterOS switch. See README.md for what it checks.
+except for one action: changing the VLAN of ports on a RouterOS switch (or setting them to trunk). See README.md for
+what it checks.
 
 ## Layout
 
@@ -14,11 +15,13 @@ except for one action: changing the untagged VLAN of a port on a RouterOS switch
   - `checks.ts`: pure functions over a `Scan`. `auditSwos` and `auditRouterOS` give the same message for the same
     check; `swInfo()` gives id/MAC/IP for both. `runChecks(scan, equipment, known, now, counters)` returns
     `{ devices, results, seen }` and updates `known` (missing-device tracking) and `counters` (port error samples of
-    the last 5 minutes, for a rising error rate). `networks()` derives VLAN names and critical VLANs from UniFi.
+    the last 5 minutes, for a rising error rate, and to clear errors from a link-up when the window is clean).
+    `networks()` derives VLAN names and critical VLANs from UniFi.
     `locate()` fills `Seen.links` (per VLAN: IPs and port). The port is the edge port: where the MAC is learned and
     no network gear is (uplinks always see the core or the next switch). Without one, UniFi's client location.
   - `ports.ts`: the only write path. `portTable()` (per port: VLAN or trunk, link, connected devices, lock reason) and
-    `planChange()` (the REST ops for a port change, or why not). Pure; `api.ts` runs the ops.
+    `planChange()` (the REST ops that put one or more ports on a VLAN, or why not; one plan for all ports, because
+    separate plans would overwrite each other's bridge VLAN entries). Pure; `api.ts` runs the ops.
   - `creds.ts`: seal/unseal of the crew code file (PBKDF2-SHA256 600k, AES-GCM).
   - Expanded scan (opt-in, `audit.run(iface, expanded)`): `wire.ts` is pure (pcap/pcapng readers, decoders, the
     observation memory `observe()`/`age()`, `wireChecks()`, `wireQueriers()` for the UniFi querier count).
@@ -48,8 +51,8 @@ except for one action: changing the untagged VLAN of a port on a RouterOS switch
   failure it does not ask again until crew turn the expanded scan off and on. The page passes only the toggle; the
   interface name is checked against `interfaces()`.
 - Port change rules (enforced in `planChange`, in the main process): RouterOS only; only VLANs that are UniFi networks;
-  ether1/ether2 never; `trunk` only on SFP+; locked: the root port, ports with switches or UniFi gear behind them (MAC
-  or received BPDUs), and the port of this computer. `api.ts` re-reads the switch before the change and verifies after.
+  ether1/ether2 never; locked: the root port, ports with switches or UniFi gear behind them (MAC or received BPDUs),
+  and the port of this computer. `api.ts` re-reads the switch before the change and verifies after.
 - The page never passes an address to the main process: only an interface name (checked against `interfaces()`) and a
   switch id from the last scan.
 - Re-running `configure.py` resets every port to the standard layout.

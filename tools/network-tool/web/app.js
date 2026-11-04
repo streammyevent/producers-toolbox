@@ -10,7 +10,8 @@ let timer,
   scanning = false,
   last = null,
   selected = null,
-  selPort = null,
+  selSwitch = null,
+  selPorts = new Set(),
   editing = false,
   again = false;
 // Standard colour per VLAN type, matched on the UniFi network name. Others get a spare colour by VID.
@@ -272,14 +273,22 @@ function vcolor(v) {
 const speed = (p) => (p.up ? (p.rate?.replace("bps", "") ?? "link") : "no link");
 const slow = (p) => p.up && /^(10|100)M/.test(p.rate ?? "");
 
+// The selected ports of dev. In a selection of more than one, only ports that can change.
+function selOf(dev) {
+  if (selSwitch !== dev.id) return [];
+  const sel = dev.ports.filter((p) => selPorts.has(p.name));
+  return sel.length > 1 ? sel.filter((p) => !p.locked) : sel;
+}
+
 function front(dev) {
   const ports = new Map(dev.ports.map((p) => [p.name, p]));
+  const sel = selOf(dev);
   const btn = (name, label) => {
     const p = ports.get(name);
     if (!p) return `<span></span>`;
     const trunk = p.vlan === "trunk";
     return `<button class="port${trunk ? " trunk" : ""}${p.locked ? " locked" : ""}" data-port="${esc(name)}" style="--v:${trunk ? "none" : vcolor(p.vlan)}"
-      aria-pressed="${selPort === `${dev.id}/${name}`}" aria-label="${esc(`${name}, ${vname(p.vlan)}, ${speed(p)}`)}" title="${esc(`${name} · ${vname(p.vlan)} · ${speed(p)}`)}">
+      aria-pressed="${sel.includes(p)}" aria-label="${esc(`${name}, ${vname(p.vlan)}, ${speed(p)}`)}" title="${esc(`${name} · ${vname(p.vlan)} · ${speed(p)}`)}">
       <span class="led${p.up ? (slow(p) ? " slow" : " up") : ""}"></span>${label}</button>`;
   };
   // CRS328 front: three blocks of 4×2 RJ45 with the even ports on top (port 1 is bottom left), then the SFP+ cages.
@@ -296,21 +305,26 @@ function front(dev) {
           `<span><span class="sw${v === "trunk" ? " trunk" : ""}" style="--v:${v === "trunk" ? "none" : vcolor(v)}"></span>${esc(vname(v))}</span>`,
       )
       .join("") + `<span><span class="sw locked"></span>Locked</span>`;
-  const sel = selPort?.startsWith(dev.id + "/") ? ports.get(selPort.slice(dev.id.length + 1)) : null;
   return `<div class="front" role="group" aria-label="Ports of ${esc(dev.title)}">${block(1)}${block(9)}${block(17)}${sfp}</div>
-    <div class="legend">${legend}</div>${sel ? portBox(sel) : ""}`;
+    <div class="legend">${legend}</div>${sel.length ? portBox(sel) : ""}`;
 }
 
-function portBox(p) {
+function portBox(sel) {
+  const p = sel[0];
+  const same = sel.every((x) => x.vlan === p.vlan);
   const opts = last.networks.map(
     (n) =>
-      `<option value="${n.vid}" style="color:${vcolor(n.vid)}"${n.vid === p.vlan ? " selected" : ""}>■ ${esc(n.name)} (${n.vid})${n.critical ? " · critical" : ""}</option>`,
+      `<option value="${n.vid}" style="color:${vcolor(n.vid)}"${same && n.vid === p.vlan ? " selected" : ""}>■ ${esc(n.name)} (${n.vid})${n.critical ? " · critical" : ""}</option>`,
   );
-  if (p.sfp) opts.unshift(`<option value="trunk"${p.vlan === "trunk" ? " selected" : ""}>Trunk (all VLANs)</option>`);
-  return `<div class="portbox">
-    <div class="pt">${esc(p.name)} · ${esc(speed(p))} · <span class="sw${p.vlan === "trunk" ? " trunk" : ""}" style="--v:${p.vlan === "trunk" ? "none" : vcolor(p.vlan)}"></span>${esc(vname(p.vlan))}</div>
-    <div class="hosts">${p.hosts.length ? `Connected: ${esc(p.hosts.join(" · "))}` : "Nothing connected."}</div>
-    ${p.locked ? `<div class="lock">Locked: ${esc(p.locked)}</div>` : `<div class="edit"><label for="pv">Untagged VLAN</label><select id="pv">${opts.join("")}</select><button id="papply" hidden></button></div>`}
+  opts.unshift(`<option value="trunk"${same && p.vlan === "trunk" ? " selected" : ""}>Trunk (all VLANs)</option>`);
+  if (!same) opts.unshift(`<option value="" selected disabled>Mixed</option>`);
+  const head =
+    sel.length > 1
+      ? `<div class="pt">${sel.length} ports: ${esc(sel.map((x) => x.name).join(", "))}</div>`
+      : `<div class="pt">${esc(p.name)} · ${esc(speed(p))} · <span class="sw${p.vlan === "trunk" ? " trunk" : ""}" style="--v:${p.vlan === "trunk" ? "none" : vcolor(p.vlan)}"></span>${esc(vname(p.vlan))}</div>
+    <div class="hosts">${p.hosts.length ? `Connected: ${esc(p.hosts.join(" · "))}` : "Nothing connected."}</div>`;
+  return `<div class="portbox">${head}
+    ${p.locked ? `<div class="lock">Locked: ${esc(p.locked)}</div>` : `<div class="edit"><label for="pv">VLAN</label><select id="pv">${opts.join("")}</select><button id="papply" hidden></button></div>${sel.length === 1 ? `<div class="hint">Shift-click more ports to change them together.</div>` : ""}`}
     <div class="pmsg" id="pmsg" role="status"></div></div>`;
 }
 
@@ -318,9 +332,19 @@ function wirePorts(dev, items) {
   const el = $("#panel");
   el.querySelectorAll("button.port").forEach(
     (b) =>
-      (b.onclick = () => {
-        const key = `${dev.id}/${b.dataset.port}`;
-        selPort = selPort === key ? null : key;
+      (b.onclick = (e) => {
+        const name = b.dataset.port;
+        const locked = (n) => dev.ports.find((p) => p.name === n)?.locked;
+        const add = (e.shiftKey || e.metaKey || e.ctrlKey) && selSwitch === dev.id && selPorts.size > 0;
+        if (add && locked(name)) return;
+        if (add) {
+          for (const n of selPorts) if (locked(n)) selPorts.delete(n);
+          if (!selPorts.delete(name)) selPorts.add(name);
+        } else {
+          const again = selSwitch === dev.id && selPorts.size === 1 && selPorts.has(name);
+          selPorts = again ? new Set() : new Set([name]);
+        }
+        selSwitch = dev.id;
         editing = false;
         showPanel(items);
         el.querySelector(`button.port[data-port="${b.dataset.port}"]`)?.focus();
@@ -330,20 +354,26 @@ function wirePorts(dev, items) {
     apply = $("#papply"),
     msg = $("#pmsg");
   if (!pv) return;
-  const port = dev.ports.find((p) => `${dev.id}/${p.name}` === selPort);
+  const sel = selOf(dev);
+  const what = sel.length > 1 ? `${sel.length} ports` : sel[0].name;
   pv.onchange = () => {
     const v = pv.value === "trunk" ? "trunk" : Number(pv.value);
-    editing = v !== port.vlan;
+    editing = sel.some((p) => p.vlan !== v);
     apply.hidden = !editing;
-    apply.textContent = `Set ${port.name} to ${vname(v)}`;
+    apply.textContent = `Set ${what} to ${vname(v)}`;
     msg.textContent = "";
   };
   apply.onclick = async () => {
     apply.disabled = pv.disabled = true;
     msg.className = "pmsg";
-    msg.textContent = "Changing the port...";
+    msg.textContent = `Changing ${what}...`;
     try {
-      const r = await call("port.change", dev.id, port.name, pv.value);
+      const r = await call(
+        "port.change",
+        dev.id,
+        sel.map((p) => p.name),
+        pv.value,
+      );
       editing = false;
       while (scanning) await new Promise((r) => setTimeout(r, 200));
       await scan();
@@ -418,7 +448,7 @@ function mark() {
 function pick(h) {
   if (!h) return;
   selected = h.dev.id;
-  selPort = null;
+  selPorts = new Set();
   editing = false;
   $("#findDlg").close();
   render(last);

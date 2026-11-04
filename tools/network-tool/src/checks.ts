@@ -82,7 +82,15 @@ function portErrors(mem: Counters, at: number) {
       const since = time(new Date(base.at).toISOString());
       return { level: "WARN" as const, msg: `${show(rise, "+")} since ${since}: check cable/SFP`, fix };
     }
-    return bad(counts)
+    // Errors from a link-up are past when the window had frames enough to show ERROR_MIN of them at the old rate.
+    const past =
+      rise &&
+      counts.every(
+        (c, i) =>
+          !bad([c]) ||
+          (rise[i][0] < ERROR_LIMIT * rise[i][1] && base.counts[i][0] * rise[i][1] >= ERROR_MIN * base.counts[i][1]),
+      );
+    return bad(counts) && !past
       ? { level: "WARN" as const, msg: `${show(counts)}: check cable/SFP`, fix }
       : { level: "INFO" as const, msg: show(counts) };
   };

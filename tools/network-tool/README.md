@@ -16,11 +16,11 @@ The tool shows a list of every device it found: the UniFi gear, the MikroTik swi
 ### Change the VLAN of a port
 
 1. In the list, select a MikroTik switch that runs RouterOS. The panel shows the front of the switch. The colour of each port shows its VLAN, and the legend gives the names. A green light means the port has a link.
-2. Click the port. The tool shows its speed and the devices connected to it.
-3. In **Untagged VLAN**, select the new network. Only UniFi networks are in the list.
-4. Click **Set ether… to …**. The port changes immediately and the tool scans again.
+2. Click the port. The tool shows its speed and the devices connected to it. To change more ports at once, Shift-click them.
+3. In **VLAN**, select the new network, or **Trunk (all VLANs)**. Only UniFi networks are in the list.
+4. Click **Set ether… to …** (or **Set 3 ports to …**). The ports change immediately and the tool scans again.
 
-Some ports are locked (dashed outline). The tool tells you why: ports 1 and 2 are always trunks, and the tool does not change a port that connects to the core, to another switch or to this computer. A trunk port (T) carries all VLANs. Only SFP+ ports can be set back to trunk.
+Some ports are locked (dashed outline). The tool tells you why: ports 1 and 2 are always trunks, and the tool does not change a port that connects to the core, to another switch or to this computer. A trunk port (T) carries all VLANs. You can set any port that is not locked to trunk.
 
 ### Expanded scan
 
@@ -94,7 +94,7 @@ The tool does not use a fixed VLAN plan. It reads the networks from UniFi and tr
 - STP root is the flypack core; access ports are edge
 - Access PVIDs that are missing from the bridge VLAN table, and PVIDs that are not a UniFi network
 
-**Port errors** (UniFi and RouterOS). The switch counts errors until it reboots, so the tool looks at the rate. WARN at 10 errors or more and 1 bad frame in a million or worse, over the switch uptime or over the last 5 minutes. The 5-minute rate shows a port that starts to make errors on the next scan. Below that, the count shows as INFO.
+**Port errors** (UniFi and RouterOS). The switch counts errors until it reboots, so the tool looks at the rate. WARN at 10 errors or more and 1 bad frame in a million or worse, over the switch uptime or over the last 5 minutes. The 5-minute rate shows a port that starts to make errors on the next scan. Errors from a link-up go to INFO when the last 5 minutes have a good rate over enough frames: as many as would show 10 errors at the rate from before. Below that, the count shows as INFO.
 
 Configuration drift on RouterOS (VLAN filtering, QoS, hardware offload) is not fixed by crew: the fix tells them to report it.
 
