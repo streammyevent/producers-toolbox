@@ -125,8 +125,8 @@ async function audit(ctx: ToolContext, creds: Creds, iface: string | undefined, 
   };
 }
 
-/** The one write in the tool: the untagged VLAN of a port on a RouterOS switch. See src/ports.ts. */
-async function changePort(creds: Creds, id: string, port: string, vlan: unknown) {
+/** The one write in the tool: the VLAN (or trunk) of ports on a RouterOS switch. See src/ports.ts. */
+async function changePorts(creds: Creds, id: string, names: string[], vlan: unknown) {
   const sw = lastScan?.switches.find((s) => s.os === "routeros" && swInfo(s).id === id);
   if (!lastScan || !sw) throw new Error(`${id} is not a RouterOS switch in the last scan. Scan again.`);
   const target = vlan === "trunk" ? "trunk" : Number(vlan);
@@ -134,22 +134,23 @@ async function changePort(creds: Creds, id: string, port: string, vlan: unknown)
   const { switchUser: u, switchPass: p } = creds;
   const ctx = portCtx(lastScan, lastSeen);
   // Decide on the switch as it is now, not as it was at the last scan.
-  const plan = planChange(await rosGet(sw.ip, u, p), ctx, port, target);
+  const plan = planChange(await rosGet(sw.ip, u, p), ctx, names, target);
   if ("error" in plan) throw new Error(plan.error);
-  if (!plan.ops.length) return { msg: `No change: ${port} is already on this VLAN.` };
+  if (!plan.ops.length) return { msg: "No change: already on this VLAN." };
   const name = (v: number | "trunk") => (v === "trunk" ? "trunk" : `${ctx.nets.get(v) ?? "VLAN"} (${v})`);
-  const what = `${id} ${port}: ${name(plan.from)} → ${name(target)}`;
+  const changed = plan.ports.map((x) => x.name);
+  const from = [...new Set(plan.ports.map((x) => name(x.vlan)))];
+  const what = `${id} ${changed.join(", ")}: ${from.join(", ")} → ${name(target)}`;
   try {
     for (const op of plan.ops) await rosCall(sw.ip, u, p, op.method, op.path, op.body);
   } catch (e) {
     console.log(`port change failed: ${what}: ${(e as Error).message}`);
     throw new Error(`The switch did not accept the change (${(e as Error).message}). Report it to the network lead.`);
   }
-  const now = portTable(await rosGet(sw.ip, u, p), ctx).find((x) => x.name === port);
-  if (now?.vlan !== target) {
-    throw new Error(
-      `The switch did not take the change: ${port} is still ${name(now?.vlan ?? plan.from)}. Report it to the network lead.`,
-    );
+  const now = portTable(await rosGet(sw.ip, u, p), ctx);
+  const failed = changed.filter((n) => now.find((x) => x.name === n)?.vlan !== target);
+  if (failed.length) {
+    throw new Error(`The switch did not take the change on ${failed.join(", ")}. Report it to the network lead.`);
   }
   console.log(`port changed: ${what}`);
   return { msg: `Done: ${what}` };
@@ -202,12 +203,15 @@ export const methods = {
     return { added: added.length };
   },
 
-  async "port.change"(ctx: ToolContext, id: unknown, port: unknown, vlan: unknown) {
+  async "port.change"(ctx: ToolContext, id: unknown, ports: unknown, vlan: unknown) {
     const creds = requireLogins(ctx);
+    if (!Array.isArray(ports) || !ports.length || ports.length > 28 || !ports.every((x) => typeof x === "string")) {
+      throw new Error("Choose one or more ports.");
+    }
     if (changing) throw new Error("Another port change is running. Wait a moment.");
     changing = true;
     try {
-      return await changePort(creds, String(id), String(port), vlan);
+      return await changePorts(creds, String(id), [...new Set(ports)], vlan);
     } finally {
       changing = false;
     }

@@ -583,6 +583,7 @@ button.port {
   box-sizing: border-box;
   position: relative;
   cursor: pointer;
+  user-select: none;
   display: grid;
   place-items: end start;
   padding: 2px 4px;
@@ -673,6 +674,10 @@ button.port:focus-visible {
 }
 .portbox .lock {
   color: var(--warn);
+  margin-top: 6px;
+}
+.portbox .hint {
+  color: var(--muted);
   margin-top: 6px;
 }
 .portbox .pmsg {

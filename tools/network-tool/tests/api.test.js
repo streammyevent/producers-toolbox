@@ -52,12 +52,14 @@ test("anything else is refused before decrypting", async (t) => {
 test("scans and port changes need the logins", async (t) => {
   const { ctx } = makeCtx(t);
   await assert.rejects(api["audit.run"](ctx), /No logins/);
-  await assert.rejects(api["port.change"](ctx, "SWITCH01", "ether5", 60), /No logins/);
+  await assert.rejects(api["port.change"](ctx, "SWITCH01", ["ether5"], 60), /No logins/);
 });
 
-test("a port change needs a switch from the last scan", async (t) => {
+test("a port change needs a list of ports and a switch from the last scan", async (t) => {
   const { ctx } = makeCtx(t, LOGINS);
-  await assert.rejects(api["port.change"](ctx, "SWITCH01", "ether5", 60), /not a RouterOS switch in the last scan/);
+  await assert.rejects(api["port.change"](ctx, "SWITCH01", "ether5", 60), /Choose one or more ports/);
+  await assert.rejects(api["port.change"](ctx, "SWITCH01", [], 60), /Choose one or more ports/);
+  await assert.rejects(api["port.change"](ctx, "SWITCH01", ["ether5"], 60), /not a RouterOS switch in the last scan/);
 });
 
 test("learning without a scan adds nothing and writes nothing", (t) => {

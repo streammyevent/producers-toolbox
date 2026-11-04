@@ -587,7 +587,7 @@ describe("port change", () => {
   };
   const plan = (port, target, mac) => {
     const { ros, ctx } = setup(mac);
-    return planChange(ros, ctx, port, target);
+    return planChange(ros, ctx, [port].flat(), target);
   };
   const ops = (port, target) => {
     const p = plan(port, target);
@@ -621,7 +621,7 @@ describe("port change", () => {
   test("a UniFi VLAN without a bridge entry gets one, tagged on every trunk", () => {
     const { ros, ctx } = setup();
     ros["interface/bridge/vlan"] = ros["interface/bridge/vlan"].filter((v) => v["vlan-ids"] !== "50");
-    const p = planChange(ros, ctx, "ether5", 50);
+    const p = planChange(ros, ctx, ["ether5"], 50);
     if ("error" in p) throw new Error(p.error);
     assert.deepStrictEqual(p.ops[0], {
       method: "PUT",
@@ -636,22 +636,50 @@ describe("port change", () => {
   });
   test("refused", () => {
     const err = (p) => ("error" in p ? p.error : "allowed");
-    startsWith(err(plan("ether1", 60)), "Trunk port");
-    startsWith(err(plan("ether2", 60)), "Trunk port");
+    startsWith(err(plan("ether1", 60)), "ether1: Trunk port");
+    startsWith(err(plan("ether2", 60)), "ether2: Trunk port");
     assert.strictEqual(err(plan("ether5", 99)), "VLAN 99 is not a network in UniFi.");
     // bridge entry exists, UniFi network does not
     assert.strictEqual(err(plan("ether5", 70)), "VLAN 70 is not a network in UniFi.");
-    assert.strictEqual(err(plan("ether5", "trunk")), "Only SFP+ ports can be set to trunk.");
-    assert.strictEqual(err(plan("sfp-sfpplus3", 60)), "Uplink to the core switch.");
-    assert.strictEqual(err(plan("sfp-sfpplus1", 60)), "Link to SWITCH01, SWITCH02, SWITCH03, SWITCH04.");
-    assert.strictEqual(err(plan("ether3", 60, LAPTOP)), "This computer is connected to this port.");
+    assert.strictEqual(err(plan("sfp-sfpplus3", 60)), "sfp-sfpplus3: Uplink to the core switch.");
+    assert.strictEqual(err(plan("sfp-sfpplus1", 60)), "sfp-sfpplus1: Link to SWITCH01, SWITCH02, SWITCH03, SWITCH04.");
+    assert.strictEqual(err(plan("ether3", 60, LAPTOP)), "ether3: This computer is connected to this port.");
     assert.strictEqual(err(plan("ether3", 60)), "allowed");
     startsWith(err(plan("ether48", 60)), "Port ether48 is not");
     const { ros } = setup();
-    startsWith(err(planChange(ros, { ...setup().ctx, nets: new Map() }, "ether5", 60)), "No VLAN list from UniFi");
+    startsWith(err(planChange(ros, { ...setup().ctx, nets: new Map() }, ["ether5"], 60)), "No VLAN list from UniFi");
+  });
+  test("copper port to trunk", () => {
+    const o = ops("ether5", "trunk");
+    const port = o.find((x) => x.path.startsWith("interface/bridge/port/")).body;
+    assert.deepStrictEqual(port, { pvid: "1", "frame-types": "admit-all", "ingress-filtering": "yes", edge: "auto" });
+    const statics = ros["interface/bridge/vlan"].filter((v) => v.dynamic !== "true").length;
+    assert.strictEqual(o.filter((x) => x.body.tagged?.split(",").includes("ether5")).length, statics);
+    assert.deepStrictEqual(
+      o.filter((x) => x.body.untagged?.split(",").includes("ether5")),
+      [],
+    );
   });
   test("same VLAN sends nothing", () => {
     assert.deepStrictEqual(ops("ether9", 60), []);
+  });
+  test("ether9 and ether10 to GreenGo in one plan", () => {
+    const o = ops(["ether9", "ether10"], 40);
+    assert.deepStrictEqual(vlanOp(o, entry("40")).untagged.split(",").slice(-2), ["ether9", "ether10"]);
+    assert.strictEqual(o.filter((x) => x.path.startsWith("interface/bridge/port/")).length, 2);
+    const dante = vlanOp(o, entry("60")).untagged.split(",");
+    assert.ok(!dante.includes("ether9") && !dante.includes("ether10"));
+  });
+  test("one locked port refuses the whole change", () => {
+    startsWith(plan(["ether5", "ether1"], 60).error, "ether1: Trunk port");
+  });
+  test("a port already on the target is skipped", () => {
+    const p = plan(["ether9", "ether5"], 60);
+    assert.deepStrictEqual(
+      p.ports.map((x) => x.name),
+      ["ether5"],
+    );
+    assert.strictEqual(p.ops.filter((x) => x.path.startsWith("interface/bridge/port/")).length, 1);
   });
   test("free SFP+ to Dante and back to trunk", () => {
     const o = ops("sfp-sfpplus2", 60);
@@ -669,9 +697,9 @@ describe("port change", () => {
         .filter((x) => x !== "sfp-sfpplus2")
         .join(",");
     }
-    const back = planChange(ros, ctx, "sfp-sfpplus2", "trunk");
+    const back = planChange(ros, ctx, ["sfp-sfpplus2"], "trunk");
     if ("error" in back) throw new Error(back.error);
-    assert.strictEqual(back.from, 60);
+    assert.strictEqual(back.ports[0].vlan, 60);
     assert.strictEqual(back.ops[0].body.pvid, "1");
     assert.strictEqual(back.ops[0].body["frame-types"], "admit-all");
     const statics = ros["interface/bridge/vlan"].filter((v) => v.dynamic !== "true").length;
